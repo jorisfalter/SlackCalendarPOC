@@ -61,11 +61,17 @@ app.post("/slack/events", async (req, res) => {
   }
 
   const { type, challenge, event } = body;
+  if (req.headers["x-slack-retry-num"]) {
+    console.log("⏩ Slack retry, skipping");
+    return res.sendStatus(200);
+  }
   if (type === "url_verification") return res.send(challenge);
 
   try {
     if (event && event.type === "message" && !event.bot_id) {
-      const slackUserId = event.user;
+      const slackUserId = body.event.user;
+      const channel = body.event.channel;
+
       const user = await User.findOne({ slackUserId });
       console.log("💬 DM received:", event.text, "from user:", slackUserId);
 
