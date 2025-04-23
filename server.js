@@ -29,7 +29,7 @@ const User = mongoose.model(
 function verifySlackRequest(req) {
   const timestamp = req.headers["x-slack-request-timestamp"];
   const slackSig = req.headers["x-slack-signature"];
-  const sigBaseString = `v0:${timestamp}:${req.rawBody}`;
+  const sigBaseString = `v0:${timestamp}:${req.body.toString("utf8")}`;
 
   const mySig =
     "v0=" +
@@ -44,18 +44,30 @@ function verifySlackRequest(req) {
 // Slack event handler
 app.post("/slack/events", async (req, res) => {
   console.log("🔔 Slack /slack/events route hit");
-  try {
-    const { type, challenge, event } = req.body;
-    if (type === "url_verification") return res.send(challenge);
-    if (!verifySlackRequest(req)) {
-      console.error("Invalid Slack signature received");
-      return res.status(400).send("Invalid signature");
-    }
 
+  // Step 2.1: Verify signature using raw body
+  if (!verifySlackRequest(req)) {
+    console.error("❌ Invalid Slack signature received");
+    return res.status(400).send("Invalid signature");
+  }
+
+  // Step 2.2: Parse the raw body manually now that it's verified
+  let body;
+  try {
+    body = JSON.parse(req.body.toString("utf8"));
+  } catch (err) {
+    console.error("❌ Failed to parse Slack request body:", err);
+    return res.status(400).send("Invalid body");
+  }
+
+  const { type, challenge, event } = body;
+  if (type === "url_verification") return res.send(challenge);
+
+  try {
     if (event && event.type === "message" && !event.bot_id) {
       const slackUserId = event.user;
       const user = await User.findOne({ slackUserId });
-      console.log("DM received:", event.text, "from user:", event.user);
+      console.log("💬 DM received:", event.text, "from user:", slackUserId);
 
       if (!user) {
         const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${process.env.GOOGLE_CLIENT_ID}&redirect_uri=${process.env.GOOGLE_REDIRECT_URI}&response_type=code&scope=https://www.googleapis.com/auth/calendar.events&access_type=offline&prompt=consent&state=${slackUserId}`;
@@ -63,7 +75,7 @@ app.post("/slack/events", async (req, res) => {
           "https://slack.com/api/chat.postMessage",
           {
             channel: event.channel,
-            text: `Please connect your Google Calendar: ${authUrl}`,
+            text: `📅 Please connect your Google Calendar: ${authUrl}`,
           },
           {
             headers: { Authorization: `Bearer ${process.env.SLACK_BOT_TOKEN}` },
@@ -72,7 +84,6 @@ app.post("/slack/events", async (req, res) => {
         return res.sendStatus(200);
       }
 
-      // Example: create event at fixed time (replace with parsing logic)
       const start = new Date(Date.now() + 3600000).toISOString(); // 1 hour from now
       const end = new Date(Date.now() + 7200000).toISOString(); // 2 hours from now
 
@@ -89,7 +100,10 @@ app.post("/slack/events", async (req, res) => {
           }
         );
       } catch (error) {
-        console.error("Failed to create Google Calendar event:", error.message);
+        console.error(
+          "❌ Failed to create Google Calendar event:",
+          error.message
+        );
         await axios.post(
           "https://slack.com/api/chat.postMessage",
           {
@@ -117,7 +131,7 @@ app.post("/slack/events", async (req, res) => {
 
     res.sendStatus(200);
   } catch (error) {
-    console.error("Error in Slack event handler:", error);
+    console.error("❌ Error in Slack event handler:", error);
     return res.status(500).send("Internal server error");
   }
 });
