@@ -6,7 +6,17 @@ const mongoose = require("mongoose");
 require("dotenv").config();
 
 const app = express();
-app.use(bodyParser.json());
+const rawBodySaver = function (req, res, buf) {
+  if (buf && buf.length) {
+    req.rawBody = buf.toString("utf8");
+  }
+};
+
+app.use(
+  bodyParser.json({
+    verify: rawBodySaver,
+  })
+);
 
 // MongoDB setup
 mongoose.connect(process.env.MONGO_URI);
@@ -22,14 +32,16 @@ const User = mongoose.model(
 // Verify Slack signature
 function verifySlackRequest(req) {
   const timestamp = req.headers["x-slack-request-timestamp"];
-  const sigBaseString = `v0:${timestamp}:${JSON.stringify(req.body)}`;
+  const slackSig = req.headers["x-slack-signature"];
+  const sigBaseString = `v0:${timestamp}:${req.rawBody}`;
+
   const mySig =
     "v0=" +
     crypto
       .createHmac("sha256", process.env.SLACK_SIGNING_SECRET)
       .update(sigBaseString)
       .digest("hex");
-  const slackSig = req.headers["x-slack-signature"];
+
   return crypto.timingSafeEqual(Buffer.from(mySig), Buffer.from(slackSig));
 }
 
