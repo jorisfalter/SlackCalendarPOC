@@ -1,5 +1,5 @@
 const express = require("express");
-const bodyParser = require("body-parser");
+// const bodyParser = require("body-parser");
 const axios = require("axios");
 const crypto = require("crypto");
 const mongoose = require("mongoose");
@@ -12,11 +12,7 @@ const rawBodySaver = function (req, res, buf) {
   }
 };
 
-app.use(
-  bodyParser.json({
-    verify: rawBodySaver,
-  })
-);
+app.use("/slack/events", express.raw({ type: "application/json" }));
 
 // MongoDB setup
 mongoose.connect(process.env.MONGO_URI);
