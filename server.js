@@ -69,8 +69,8 @@ app.post("/slack/events", async (req, res) => {
 
   try {
     if (event && event.type === "message" && !event.bot_id) {
-      const slackUserId = body.event.user;
-      const channel = body.event.channel;
+      const slackUserId = event.user;
+      const channel = event.channel;
 
       const user = await User.findOne({ slackUserId });
       console.log("💬 DM received:", event.text, "from user:", slackUserId);
