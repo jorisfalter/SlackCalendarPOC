@@ -113,6 +113,11 @@ app.get("/google/oauth/callback", async (req, res) => {
   );
 });
 
+app.get("/", (req, res) => {
+  console.log("Ping received on /");
+  res.send("Bot is running");
+});
+
 // Start the server
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`⚡️ Server running on port ${PORT}`));
