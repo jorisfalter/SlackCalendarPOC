@@ -35,6 +35,7 @@ function verifySlackRequest(req) {
 
 // Slack event handler
 app.post("/slack/events", async (req, res) => {
+  console.log("🔔 Slack /slack/events route hit");
   try {
     const { type, challenge, event } = req.body;
     if (type === "url_verification") return res.send(challenge);
@@ -144,6 +145,23 @@ app.get("/google/oauth/callback", async (req, res) => {
     res
       .status(500)
       .send("Failed to connect Google Calendar. Please try again.");
+  }
+});
+
+app.post("/slack/slash", async (req, res) => {
+  try {
+    console.log("Slash command received:", req.body);
+
+    // Respond to Slack immediately
+    res.json({
+      response_type: "ephemeral",
+      text: "🕐 Blocking your time... (not yet implemented)",
+    });
+
+    // You could trigger background logic here if needed
+  } catch (err) {
+    console.error("Error in /slack/slash:", err);
+    res.status(500).send("Something went wrong");
   }
 });
 
