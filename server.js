@@ -110,13 +110,36 @@ app.post("/slack/events", async (req, res) => {
       //   const { start, end, summary } = parsed;
 
       //
-      https: await axios.post(
-        "https://hook.eu2.make.com/quvocngj7dt2m8dcefft1w6alf6lqwt7",
-        {
-          message: event.text,
+      try {
+        await axios.post(
+          "https://hook.eu2.make.com/quvocngj7dt2m8dcefft1w6alf6lqwt7",
+          {
+            message: event.text,
+            userId: slackUserId,
+            token: user.accessToken,
+          }
+        );
+      } catch (error) {
+        console.error("❌ Failed to send request to Make.com webhook:", {
+          message: error.message,
+          response: error.response?.data,
+          status: error.response?.status,
           userId: slackUserId,
-        }
-      );
+          originalMessage: event.text,
+        });
+
+        await axios.post(
+          "https://slack.com/api/chat.postMessage",
+          {
+            channel: event.channel,
+            text: `❌ Sorry, I couldn't process your request: ${error.message}`,
+          },
+          {
+            headers: { Authorization: `Bearer ${process.env.SLACK_BOT_TOKEN}` },
+          }
+        );
+        return res.sendStatus(200);
+      }
 
       //   try {
       //     await axios.post(
