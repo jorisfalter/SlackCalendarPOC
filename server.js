@@ -122,15 +122,19 @@ app.post("/slack/events", async (req, res) => {
           }
         );
       } catch (error) {
-        console.error(
-          "❌ Failed to create Google Calendar event:",
-          error.message
-        );
+        console.error("❌ Failed to create Google Calendar event:", {
+          message: error.message,
+          response: error.response?.data,
+          status: error.response?.status,
+          headers: error.response?.headers,
+          userId: slackUserId,
+          eventDetails: { summary, start, end },
+        });
         await axios.post(
           "https://slack.com/api/chat.postMessage",
           {
             channel: event.channel,
-            text: `❌ Sorry, I couldn't create the calendar event`,
+            text: `❌ Sorry, I couldn't create the calendar event: ${error.message}`,
           },
           {
             headers: { Authorization: `Bearer ${process.env.SLACK_BOT_TOKEN}` },
