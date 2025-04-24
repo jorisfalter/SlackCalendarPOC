@@ -118,45 +118,45 @@ app.post("/slack/events", async (req, res) => {
         }
       );
 
-      try {
-        await axios.post(
-          "https://www.googleapis.com/calendar/v3/calendars/primary/events",
-          {
-            summary: summary,
-            start: { dateTime: start },
-            end: { dateTime: end },
-          },
-          {
-            headers: { Authorization: `Bearer ${user.accessToken}` },
-          }
-        );
-      } catch (error) {
-        console.error("❌ Failed to create Google Calendar event:", {
-          message: error.message,
-          response: error.response?.data,
-          status: error.response?.status,
-          headers: error.response?.headers,
-          userId: slackUserId,
-          eventDetails: { summary, start, end },
-        });
-        await axios.post(
-          "https://slack.com/api/chat.postMessage",
-          {
-            channel: event.channel,
-            text: `❌ Sorry, I couldn't create the calendar event: ${error.message}`,
-          },
-          {
-            headers: { Authorization: `Bearer ${process.env.SLACK_BOT_TOKEN}` },
-          }
-        );
-        return res.sendStatus(200);
-      }
+      //   try {
+      //     await axios.post(
+      //       "https://www.googleapis.com/calendar/v3/calendars/primary/events",
+      //       {
+      //         summary: summary,
+      //         start: { dateTime: start },
+      //         end: { dateTime: end },
+      //       },
+      //       {
+      //         headers: { Authorization: `Bearer ${user.accessToken}` },
+      //       }
+      //     );
+      //   } catch (error) {
+      //     console.error("❌ Failed to create Google Calendar event:", {
+      //       message: error.message,
+      //       response: error.response?.data,
+      //       status: error.response?.status,
+      //       headers: error.response?.headers,
+      //       userId: slackUserId,
+      //       eventDetails: { summary, start, end },
+      //     });
+      //     await axios.post(
+      //       "https://slack.com/api/chat.postMessage",
+      //       {
+      //         channel: event.channel,
+      //         text: `❌ Sorry, I couldn't create the calendar event: ${error.message}`,
+      //       },
+      //       {
+      //         headers: { Authorization: `Bearer ${process.env.SLACK_BOT_TOKEN}` },
+      //       }
+      //     );
+      //     return res.sendStatus(200);
+      //   }
 
       await axios.post(
         "https://slack.com/api/chat.postMessage",
         {
           channel: event.channel,
-          text: `✅ Event added to your Google Calendar!`,
+          text: `✅ Event added to your Google Calendar! - I don't think this message is based on actualy feedback loop`,
         },
         {
           headers: { Authorization: `Bearer ${process.env.SLACK_BOT_TOKEN}` },
