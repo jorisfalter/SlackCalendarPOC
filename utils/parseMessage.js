@@ -7,6 +7,7 @@ function parseMessage(message) {
     return null; // couldn't parse any date
   }
 
+  console.log(parsed);
   const { start, index, text } = parsed[0];
   const startTime = start.date();
   const endTime = new Date(startTime.getTime() + 60 * 60 * 1000); // default 1h

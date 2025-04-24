@@ -130,7 +130,7 @@ app.post("/slack/events", async (req, res) => {
           "https://slack.com/api/chat.postMessage",
           {
             channel: event.channel,
-            text: `❌ Sorry, I couldn't create the calendar event. Please try again.`,
+            text: `❌ Sorry, I couldn't create the calendar event`,
           },
           {
             headers: { Authorization: `Bearer ${process.env.SLACK_BOT_TOKEN}` },
