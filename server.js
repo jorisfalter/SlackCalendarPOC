@@ -109,6 +109,10 @@ app.post("/slack/events", async (req, res) => {
 
       //   const { start, end, summary } = parsed;
 
+      const start = new Date(Date.now() + 3600000).toISOString(); // 1 hour from now
+      const end = new Date(Date.now() + 7200000).toISOString(); // 2 hours from now
+      const summary = "Blocked time";
+
       try {
         await axios.post(
           "https://www.googleapis.com/calendar/v3/calendars/primary/events",
