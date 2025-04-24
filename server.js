@@ -4,7 +4,7 @@ const axios = require("axios");
 const crypto = require("crypto");
 const mongoose = require("mongoose");
 require("dotenv").config();
-const parseMessage = require("./utils/parseMessage");
+// const parseMessage = require("./utils/parseMessage");
 const app = express();
 const rawBodySaver = function (req, res, buf) {
   if (buf && buf.length) {
@@ -90,24 +90,24 @@ app.post("/slack/events", async (req, res) => {
         return res.sendStatus(200);
       }
 
-      const message = event.text;
-      const parsed = parseMessage(message);
+      //   const message = event.text;
+      //   const parsed = parseMessage(message);
 
-      if (!parsed) {
-        await axios.post(
-          "https://slack.com/api/chat.postMessage",
-          {
-            channel: event.channel,
-            text: "❌ I couldn't understand the time. Try something like 'block tomorrow 2pm for a call'.",
-          },
-          {
-            headers: { Authorization: `Bearer ${process.env.SLACK_BOT_TOKEN}` },
-          }
-        );
-        return res.sendStatus(200);
-      }
+      //   if (!parsed) {
+      //     await axios.post(
+      //       "https://slack.com/api/chat.postMessage",
+      //       {
+      //         channel: event.channel,
+      //         text: "❌ I couldn't understand the time. Try something like 'block tomorrow 2pm for a call'.",
+      //       },
+      //       {
+      //         headers: { Authorization: `Bearer ${process.env.SLACK_BOT_TOKEN}` },
+      //       }
+      //     );
+      //     return res.sendStatus(200);
+      //   }
 
-      const { start, end, summary } = parsed;
+      //   const { start, end, summary } = parsed;
 
       try {
         await axios.post(
