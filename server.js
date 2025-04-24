@@ -109,9 +109,14 @@ app.post("/slack/events", async (req, res) => {
 
       //   const { start, end, summary } = parsed;
 
-      const start = new Date(Date.now() + 3600000).toISOString(); // 1 hour from now
-      const end = new Date(Date.now() + 7200000).toISOString(); // 2 hours from now
-      const summary = "Blocked time";
+      //
+      https: await axios.post(
+        "https://hook.eu2.make.com/quvocngj7dt2m8dcefft1w6alf6lqwt7",
+        {
+          message: event.text,
+          userId: slackUserId,
+        }
+      );
 
       try {
         await axios.post(
