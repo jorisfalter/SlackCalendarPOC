@@ -4,8 +4,7 @@ const axios = require("axios");
 const crypto = require("crypto");
 const mongoose = require("mongoose");
 require("dotenv").config();
-const chrono = require("chrono-node");
-
+const parseMessage = require("./utils/parseMessage");
 const app = express();
 const rawBodySaver = function (req, res, buf) {
   if (buf && buf.length) {
@@ -91,14 +90,30 @@ app.post("/slack/events", async (req, res) => {
         return res.sendStatus(200);
       }
 
-      const start = new Date(Date.now() + 3600000).toISOString(); // 1 hour from now
-      const end = new Date(Date.now() + 7200000).toISOString(); // 2 hours from now
+      const message = event.text;
+      const parsed = parseMessage(message);
+
+      if (!parsed) {
+        await axios.post(
+          "https://slack.com/api/chat.postMessage",
+          {
+            channel: event.channel,
+            text: "❌ I couldn't understand the time. Try something like 'block tomorrow 2pm for a call'.",
+          },
+          {
+            headers: { Authorization: `Bearer ${process.env.SLACK_BOT_TOKEN}` },
+          }
+        );
+        return res.sendStatus(200);
+      }
+
+      const { start, end, summary } = parsed;
 
       try {
         await axios.post(
           "https://www.googleapis.com/calendar/v3/calendars/primary/events",
           {
-            summary: "Blocked time",
+            summary: summary,
             start: { dateTime: start },
             end: { dateTime: end },
           },
