@@ -41,6 +41,36 @@ function verifySlackRequest(req) {
   return crypto.timingSafeEqual(Buffer.from(mySig), Buffer.from(slackSig));
 }
 
+// refresh access token
+async function refreshAccessToken(user) {
+  try {
+    const { data } = await axios.post(
+      "https://oauth2.googleapis.com/token",
+      null,
+      {
+        params: {
+          client_id: process.env.GOOGLE_CLIENT_ID,
+          client_secret: process.env.GOOGLE_CLIENT_SECRET,
+          refresh_token: user.refreshToken,
+          grant_type: "refresh_token",
+        },
+      }
+    );
+
+    // Update the user's token in the database
+    user.accessToken = data.access_token;
+    await user.save();
+
+    return data.access_token;
+  } catch (err) {
+    console.error(
+      "❌ Failed to refresh token:",
+      err.response?.data || err.message
+    );
+    throw new Error("Unable to refresh Google access token");
+  }
+}
+
 // Slack event handler
 app.post("/slack/events", async (req, res) => {
   console.log("🔔 Slack /slack/events route hit");
