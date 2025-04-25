@@ -123,71 +123,89 @@ app.post("/slack/events", async (req, res) => {
       // Refresh the access token before making the webhook call
       const newAccessToken = await refreshAccessToken(user);
 
-      // send to make.com
+      // Check message intent using OpenAI
       try {
-        await axios.post(
-          "https://hook.eu2.make.com/quvocngj7dt2m8dcefft1w6alf6lqwt7",
+        const openaiResponse = await axios.post(
+          "https://api.openai.com/v1/chat/completions",
           {
-            message: event.text,
-            userId: slackUserId,
-            token: newAccessToken,
-          }
-        );
-      } catch (error) {
-        console.error("❌ Failed to send request to Make.com webhook:", {
-          message: error.message,
-          response: error.response?.data,
-          status: error.response?.status,
-          userId: slackUserId,
-          originalMessage: event.text,
-        });
-
-        await axios.post(
-          "https://slack.com/api/chat.postMessage",
-          {
-            channel: event.channel,
-            text: `❌ Sorry, I couldn't process your request: ${error.message}`,
+            model: "gpt-3.5-turbo",
+            messages: [
+              {
+                role: "system",
+                content:
+                  "You are a helper that categorizes calendar-related requests. Respond with exactly 'create' for requests to create/add meetings, or 'delete' for requests to delete/remove meetings.",
+              },
+              {
+                role: "user",
+                content: event.text,
+              },
+            ],
           },
           {
-            headers: { Authorization: `Bearer ${process.env.SLACK_BOT_TOKEN}` },
+            headers: {
+              Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+              "Content-Type": "application/json",
+            },
           }
         );
-        return res.sendStatus(200);
-      }
 
-      //   try {
-      //     await axios.post(
-      //       "https://www.googleapis.com/calendar/v3/calendars/primary/events",
-      //       {
-      //         summary: summary,
-      //         start: { dateTime: start },
-      //         end: { dateTime: end },
-      //       },
-      //       {
-      //         headers: { Authorization: `Bearer ${user.accessToken}` },
-      //       }
-      //     );
-      //   } catch (error) {
-      //     console.error("❌ Failed to create Google Calendar event:", {
-      //       message: error.message,
-      //       response: error.response?.data,
-      //       status: error.response?.status,
-      //       headers: error.response?.headers,
-      //       userId: slackUserId,
-      //       eventDetails: { summary, start, end },
-      //     });
-      //     await axios.post(
-      //       "https://slack.com/api/chat.postMessage",
-      //       {
-      //         channel: event.channel,
-      //         text: `❌ Sorry, I couldn't create the calendar event: ${error.message}`,
-      //       },
-      //       {
-      //         headers: { Authorization: `Bearer ${process.env.SLACK_BOT_TOKEN}` },
-      //       }
-      //     );
-      //     return res.sendStatus(200);
-      //   }
+        const intent = openaiResponse.data.choices[0].message.content
+          .trim()
+          .toLowerCase();
+
+        if (intent === "create") {
+          // send to make.com
+          try {
+            await axios.post(
+              "https://hook.eu2.make.com/quvocngj7dt2m8dcefft1w6alf6lqwt7",
+              {
+                message: event.text,
+                userId: slackUserId,
+                token: newAccessToken,
+              }
+            );
+          } catch (error) {
+            console.error("❌ Failed to send request to Make.com webhook:", {
+              message: error.message,
+              response: error.response?.data,
+              status: error.response?.status,
+              userId: slackUserId,
+              originalMessage: event.text,
+            });
+
+            await axios.post(
+              "https://slack.com/api/chat.postMessage",
+              {
+                channel: event.channel,
+                text: `❌ Sorry, I couldn't process your request: ${error.message}`,
+              },
+              {
+                headers: {
+                  Authorization: `Bearer ${process.env.SLACK_BOT_TOKEN}`,
+                },
+              }
+            );
+            return res.sendStatus(200);
+          }
+        } else if (intent === "delete") {
+          console.log("🗑️ Delete meeting request detected:", event.text);
+          await axios.post(
+            "https://slack.com/api/chat.postMessage",
+            {
+              channel: event.channel,
+              text: "I detected a request to delete a meeting. This functionality is not implemented yet.",
+            },
+            {
+              headers: {
+                Authorization: `Bearer ${process.env.SLACK_BOT_TOKEN}`,
+              },
+            }
+          );
+        }
+      } catch (error) {
+        console.error("❌ Error checking message intent with OpenAI:", error);
+        // Continue with original error handling
+      }
 
       await axios.post(
         "https://slack.com/api/chat.postMessage",
