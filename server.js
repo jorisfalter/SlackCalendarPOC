@@ -153,6 +153,7 @@ app.post("/slack/events", async (req, res) => {
           .trim()
           .toLowerCase();
 
+        console.log("💬 Intent:", intent);
         if (intent === "create") {
           // send to make.com
           try {
