@@ -219,6 +219,7 @@ app.post("/slack/events", async (req, res) => {
           const eventDetails = JSON.parse(
             eventResponse.data.choices[0].message.content
           );
+          console.log("💬 Event Details:", eventDetails);
 
           try {
             // Search for events in user's calendar
