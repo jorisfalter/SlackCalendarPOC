@@ -123,6 +123,7 @@ app.post("/slack/events", async (req, res) => {
       // Refresh the access token before making the webhook call
       const newAccessToken = await refreshAccessToken(user);
 
+      // send to make.com
       try {
         await axios.post(
           "https://hook.eu2.make.com/quvocngj7dt2m8dcefft1w6alf6lqwt7",
