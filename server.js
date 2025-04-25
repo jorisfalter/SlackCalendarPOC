@@ -223,6 +223,18 @@ app.post("/slack/events", async (req, res) => {
           console.log("💬 Event Details:", eventDetails);
 
           try {
+            // Calculate timeMin and timeMax from eventDetails
+            let timeMin, timeMax;
+            if (eventDetails.date && eventDetails.time) {
+              const eventDateTime = new Date(
+                `${eventDetails.date}T${eventDetails.time}`
+              );
+              timeMin = eventDateTime.toISOString();
+              timeMax = new Date(
+                eventDateTime.getTime() + 30 * 60 * 1000
+              ).toISOString(); // Add 30 minutes for default duration
+            }
+
             // Search for events in user's calendar
             // Widen the search window by ±1 hour to account for potential timezone differences
             const searchTimeMin = new Date(
