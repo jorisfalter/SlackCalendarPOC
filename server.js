@@ -111,7 +111,7 @@ app.post("/slack/events", async (req, res) => {
           "https://slack.com/api/chat.postMessage",
           {
             channel: event.channel,
-            text: `📅 Please connect your Google Calendar: ${authUrl}`,
+            text: `Please connect your Google Calendar: <${authUrl}|Click here to connect>`,
           },
           {
             headers: { Authorization: `Bearer ${process.env.SLACK_BOT_TOKEN}` },
