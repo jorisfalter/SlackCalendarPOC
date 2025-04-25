@@ -224,18 +224,13 @@ app.post("/slack/events", async (req, res) => {
 
           try {
             // Search for events in user's calendar
-            const timeMin =
-              eventDetails.date && eventDetails.time
-                ? new Date(
-                    `${eventDetails.date}T${eventDetails.time}:00Z`
-                  ).toISOString()
-                : null;
-            const timeMax =
-              eventDetails.date && eventDetails.time
-                ? new Date(
-                    `${eventDetails.date}T${eventDetails.time}:59Z`
-                  ).toISOString()
-                : null;
+            // Widen the search window by ±1 hour to account for potential timezone differences
+            const searchTimeMin = new Date(
+              new Date(timeMin).getTime() - 60 * 60 * 1000
+            ).toISOString();
+            const searchTimeMax = new Date(
+              new Date(timeMax).getTime() + 60 * 60 * 1000
+            ).toISOString();
 
             console.log("💬 TimeMin:", timeMin);
             console.log("💬 TimeMax:", timeMax);
