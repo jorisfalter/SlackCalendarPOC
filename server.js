@@ -199,9 +199,9 @@ app.post("/slack/events", async (req, res) => {
               messages: [
                 {
                   role: "system",
-                  content: `You must respond with ONLY a raw JSON object, no explanation or context. The JSON must contain: title (string), date (string in YYYY-MM-DD format or null), time (string in HH:mm format or null). Today's date is ${
-                    new Date().toISOString().split("T")[0]
-                  }. Example response format: {"title":"Team Meeting","date":"2024-03-15","time":"14:30"}`,
+                  content: `You must respond with ONLY a raw JSON object, no explanation or context. The JSON must contain: title (string), dateTime (string in ISO 8601 UTC format or null). Parse the input assuming user's local timezone is ${
+                    Intl.DateTimeFormat().resolvedOptions().timeZone
+                  }. Today's date is ${new Date().toISOString()}. Example response format: {"title":"Team Meeting","dateTime":"2024-03-15T14:30:00Z"}`,
                 },
                 {
                   role: "user",
@@ -225,120 +225,101 @@ app.post("/slack/events", async (req, res) => {
           );
           console.log("💬 Event Details:", eventDetails);
 
-          try {
-            // Calculate timeMin and timeMax from eventDetails
-            let timeMin, timeMax;
-            if (eventDetails.date && eventDetails.time) {
-              const eventDateTime = new Date(
-                `${eventDetails.date}T${eventDetails.time}`
-              );
-              timeMin = eventDateTime.toISOString();
-              timeMax = new Date(
-                eventDateTime.getTime() + 30 * 60 * 1000
-              ).toISOString(); // Add 30 minutes for default duration
-            }
-
-            // Search for events in user's calendar
-            // Widen the search window by ±1 hour to account for potential timezone differences
-            // const searchTimeMin = new Date(
-            //   new Date(timeMin).getTime() - 60 * 60 * 1000
-            // ).toISOString();
-            // const searchTimeMax = new Date(
-            //   new Date(timeMax).getTime() + 60 * 60 * 1000
-            // ).toISOString();
-
-            console.log("💬 TimeMin:", timeMin);
-            console.log("💬 TimeMax:", timeMax);
-
-            // If no specific time was provided, ask for more details
-            if (!timeMin || !timeMax) {
-              await axios.post(
-                "https://slack.com/api/chat.postMessage",
-                {
-                  channel: event.channel,
-                  text: "⚠️ Please specify both the date and time of the meeting you want to delete. For example: 'delete the meeting about project review on March 15th at 2pm'",
-                },
-                {
-                  headers: {
-                    Authorization: `Bearer ${process.env.SLACK_BOT_TOKEN}`,
-                  },
-                }
-              );
-              return res.sendStatus(200);
-            }
-
-            const calendarResponse = await axios.get(
-              "https://www.googleapis.com/calendar/v3/calendars/primary/events",
-              {
-                headers: { Authorization: `Bearer ${newAccessToken}` },
-                params: {
-                  //   q: eventDetails.title,
-                  timeMin,
-                  timeMax,
-                  singleEvents: true,
-                  orderBy: "startTime",
-                },
-              }
-            );
-
-            const events = calendarResponse.data.items;
-            console.log("💬 Eventslist:", events);
-
-            if (events.length === 0) {
-              await axios.post(
-                "https://slack.com/api/chat.postMessage",
-                {
-                  channel: event.channel,
-                  text: "❌ I couldn't find any matching events in your calendar. Please try being more specific about which meeting you want to delete.",
-                },
-                {
-                  headers: {
-                    Authorization: `Bearer ${process.env.SLACK_BOT_TOKEN}`,
-                  },
-                }
-              );
-              return res.sendStatus(200);
-            }
-
-            // Delete the first matching event
-            await axios.delete(
-              `https://www.googleapis.com/calendar/v3/calendars/primary/events/${events[0].id}`,
-              {
-                headers: { Authorization: `Bearer ${newAccessToken}` },
-              }
-            );
-
-            await axios.post(
-              "https://slack.com/api/chat.postMessage",
-              {
-                channel: event.channel,
-                text: `✅ I've deleted the meeting "${
-                  events[0].summary
-                }" scheduled for ${new Date(
-                  events[0].start.dateTime || events[0].start.date
-                ).toLocaleString()}.`,
-              },
-              {
-                headers: {
-                  Authorization: `Bearer ${process.env.SLACK_BOT_TOKEN}`,
-                },
-              }
-            );
-          } catch (error) {
-            console.error("❌ Error deleting calendar event:", error);
-            await axios.post(
-              "https://slack.com/api/chat.postMessage",
-              {
-                channel: event.channel,
-                text: "❌ Sorry, I encountered an error while trying to delete the event. Please try again.",
-              },
-              {
-                headers: {
-                  Authorization: `Bearer ${process.env.SLACK_BOT_TOKEN}`,
-                },
-              }
-            );
+          // Update the timeMin/timeMax calculation
+          let timeMin, timeMax;
+          if (eventDetails.dateTime) {
+            timeMin = eventDetails.dateTime;
+            timeMax = new Date(
+              new Date(eventDetails.dateTime).getTime() + 30 * 60 * 1000
+            ).toISOString();
           }
+
+          // Search for events in user's calendar
+          // Widen the search window by ±1 hour to account for potential timezone differences
+          // const searchTimeMin = new Date(
+          //   new Date(timeMin).getTime() - 60 * 60 * 1000
+          // ).toISOString();
+          // const searchTimeMax = new Date(
+          //   new Date(timeMax).getTime() + 60 * 60 * 1000
+          // ).toISOString();
+
+          console.log("💬 TimeMin:", timeMin);
+          console.log("💬 TimeMax:", timeMax);
+
+          // If no specific time was provided, ask for more details
+          if (!timeMin || !timeMax) {
+            await axios.post(
+              "https://slack.com/api/chat.postMessage",
+              {
+                channel: event.channel,
+                text: "⚠️ Please specify both the date and time of the meeting you want to delete. For example: 'delete the meeting about project review on March 15th at 2pm'",
+              },
+              {
+                headers: {
+                  Authorization: `Bearer ${process.env.SLACK_BOT_TOKEN}`,
+                },
+              }
+            );
+            return res.sendStatus(200);
+          }
+
+          const calendarResponse = await axios.get(
+            "https://www.googleapis.com/calendar/v3/calendars/primary/events",
+            {
+              headers: { Authorization: `Bearer ${newAccessToken}` },
+              params: {
+                //   q: eventDetails.title,
+                timeMin,
+                timeMax,
+                singleEvents: true,
+                orderBy: "startTime",
+              },
+            }
+          );
+
+          const events = calendarResponse.data.items;
+          console.log("💬 Eventslist:", events);
+
+          if (events.length === 0) {
+            await axios.post(
+              "https://slack.com/api/chat.postMessage",
+              {
+                channel: event.channel,
+                text: "❌ I couldn't find any matching events in your calendar. Please try being more specific about which meeting you want to delete.",
+              },
+              {
+                headers: {
+                  Authorization: `Bearer ${process.env.SLACK_BOT_TOKEN}`,
+                },
+              }
+            );
+            return res.sendStatus(200);
+          }
+
+          // Delete the first matching event
+          await axios.delete(
+            `https://www.googleapis.com/calendar/v3/calendars/primary/events/${events[0].id}`,
+            {
+              headers: { Authorization: `Bearer ${newAccessToken}` },
+            }
+          );
+
+          await axios.post(
+            "https://slack.com/api/chat.postMessage",
+            {
+              channel: event.channel,
+              text: `✅ I've deleted the meeting "${
+                events[0].summary
+              }" scheduled for ${new Date(
+                events[0].start.dateTime || events[0].start.date
+              ).toLocaleString()}.`,
+            },
+            {
+              headers: {
+                Authorization: `Bearer ${process.env.SLACK_BOT_TOKEN}`,
+              },
+            }
+          );
         }
       } catch (error) {
         console.error("❌ Error checking message intent with OpenAI:", error);
