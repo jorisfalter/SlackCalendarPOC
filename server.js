@@ -216,7 +216,7 @@ app.post("/slack/events", async (req, res) => {
               },
             }
           );
-
+          console.log(eventResponse.data.choices[0].message.content);
           const eventDetails = JSON.parse(
             eventResponse.data.choices[0].message.content
           );
