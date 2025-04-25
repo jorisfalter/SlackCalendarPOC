@@ -240,12 +240,12 @@ app.post("/slack/events", async (req, res) => {
 
             // Search for events in user's calendar
             // Widen the search window by ±1 hour to account for potential timezone differences
-            const searchTimeMin = new Date(
-              new Date(timeMin).getTime() - 60 * 60 * 1000
-            ).toISOString();
-            const searchTimeMax = new Date(
-              new Date(timeMax).getTime() + 60 * 60 * 1000
-            ).toISOString();
+            // const searchTimeMin = new Date(
+            //   new Date(timeMin).getTime() - 60 * 60 * 1000
+            // ).toISOString();
+            // const searchTimeMax = new Date(
+            //   new Date(timeMax).getTime() + 60 * 60 * 1000
+            // ).toISOString();
 
             console.log("💬 TimeMin:", timeMin);
             console.log("💬 TimeMax:", timeMax);
@@ -274,7 +274,7 @@ app.post("/slack/events", async (req, res) => {
                 params: {
                   //   q: eventDetails.title,
                   timeMin,
-                  //   timeMax,
+                  timeMax,
                   singleEvents: true,
                   orderBy: "startTime",
                 },
@@ -282,7 +282,7 @@ app.post("/slack/events", async (req, res) => {
             );
 
             const events = calendarResponse.data.items;
-            console.log("💬 Events:", events);
+            console.log("💬 Eventslist:", events);
 
             if (events.length === 0) {
               await axios.post(
