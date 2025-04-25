@@ -269,9 +269,9 @@ app.post("/slack/events", async (req, res) => {
               {
                 headers: { Authorization: `Bearer ${newAccessToken}` },
                 params: {
-                  q: eventDetails.title,
+                  //   q: eventDetails.title,
                   timeMin,
-                  timeMax,
+                  //   timeMax,
                   singleEvents: true,
                   orderBy: "startTime",
                 },
