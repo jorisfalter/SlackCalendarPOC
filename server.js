@@ -216,7 +216,10 @@ app.post("/slack/events", async (req, res) => {
               },
             }
           );
-          console.log(eventResponse.data.choices[0].message.content);
+          console.log(
+            "eventresponse:",
+            eventResponse.data.choices[0].message.content
+          );
           const eventDetails = JSON.parse(
             eventResponse.data.choices[0].message.content
           );
@@ -279,6 +282,7 @@ app.post("/slack/events", async (req, res) => {
             );
 
             const events = calendarResponse.data.items;
+            console.log("💬 Events:", events);
 
             if (events.length === 0) {
               await axios.post(
