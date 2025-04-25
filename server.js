@@ -192,7 +192,7 @@ app.post("/slack/events", async (req, res) => {
         "https://slack.com/api/chat.postMessage",
         {
           channel: event.channel,
-          text: `✅ Event added to your Google Calendar! - I don't think this message is based on actualy feedback loop`,
+          text: `Thank you, I have received your request, I'm working on it, I don't have a feedback loop yet, so please confirm by checking your calendar`,
         },
         {
           headers: { Authorization: `Bearer ${process.env.SLACK_BOT_TOKEN}` },
