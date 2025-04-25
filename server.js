@@ -199,8 +199,9 @@ app.post("/slack/events", async (req, res) => {
               messages: [
                 {
                   role: "system",
-                  content:
-                    "Extract meeting details from the text. Respond with a JSON object containing: title (the likely meeting title/topic), date (YYYY-MM-DD format, null if not specified), time (HH:mm format, null if not specified). Make educated guesses for the title based on context.",
+                  content: `Extract meeting details from the text. Today's date is ${
+                    new Date().toISOString().split("T")[0]
+                  }. Respond with a JSON object containing: title (the likely meeting title/topic), date (YYYY-MM-DD format, null if not specified), time (HH:mm format, null if not specified). Make educated guesses for the title based on context.`,
                 },
                 {
                   role: "user",
