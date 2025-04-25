@@ -199,9 +199,9 @@ app.post("/slack/events", async (req, res) => {
               messages: [
                 {
                   role: "system",
-                  content: `Extract meeting details from the text. Today's date is ${
+                  content: `You must respond with ONLY a raw JSON object, no explanation or context. The JSON must contain: title (string), date (string in YYYY-MM-DD format or null), time (string in HH:mm format or null). Today's date is ${
                     new Date().toISOString().split("T")[0]
-                  }. Respond with a JSON object containing: title (the likely meeting title/topic), date (YYYY-MM-DD format, null if not specified), time (HH:mm format, null if not specified). Make educated guesses for the title based on context.`,
+                  }. Example response format: {"title":"Team Meeting","date":"2024-03-15","time":"14:30"}`,
                 },
                 {
                   role: "user",
