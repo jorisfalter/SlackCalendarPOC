@@ -4,13 +4,14 @@ const axios = require("axios");
 const crypto = require("crypto");
 const mongoose = require("mongoose");
 require("dotenv").config();
-// const parseMessage = require("./utils/parseMessage");
 const app = express();
 const rawBodySaver = function (req, res, buf) {
   if (buf && buf.length) {
     req.rawBody = buf.toString("utf8");
   }
 };
+
+// Original file which integrates with Make.com part
 
 app.use("/slack/events", express.raw({ type: "application/json" }));
 
