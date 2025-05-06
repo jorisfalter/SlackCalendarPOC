@@ -475,14 +475,12 @@ async function processCalendarRequest(userInput) {
 - For new meetings:
   - Ask for duration if not specified
   - Accept user's preferred time if given
-  - Only suggest times if user hasn't specified:
-    - Lunch: 12:00 PM
-    - Morning: 9:00 AM
-    - Afternoon: 2:00 PM
+  - When scheduling relative to other meetings:
+    - First find the referenced meeting
+    - Then schedule around it appropriately
   - When attendees are mentioned:
     - Ask for their email address if not provided
     - Format: "Could you provide Frank's email address to send the invitation?"
-- For rescheduling: Use modify_meeting with relative dates
 - Keep responses clear and concise
 - Don't question user's choices once they're clear
 - Don't suggest changes to confirmed times/durations`,
@@ -703,18 +701,22 @@ async function createMeeting({
     const calendar = await getCalendarClient();
     const timeZone = "Europe/Amsterdam";
 
-    // Create start datetime
-    const startDateTime = new Date(date);
+    // Create start datetime with explicit timezone handling
     const [startHour, startMinute] = start_time.split(":").map(Number);
-    startDateTime.setHours(startHour, startMinute, 0);
+    const startDateTime = new Date(date);
+    // Adjust for timezone offset
+    const offset = startDateTime.getTimezoneOffset();
+    startDateTime.setMinutes(startDateTime.getMinutes() - offset);
+    startDateTime.setHours(startHour, startMinute, 0, 0);
 
-    // Create end datetime
+    // Create end datetime with same timezone handling
     const endDateTime = new Date(date);
+    endDateTime.setMinutes(endDateTime.getMinutes() - offset);
     if (end_time) {
       const [endHour, endMinute] = end_time.split(":").map(Number);
-      endDateTime.setHours(endHour, endMinute, 0);
+      endDateTime.setHours(endHour, endMinute, 0, 0);
     } else {
-      endDateTime.setHours(startHour + 1, startMinute, 0);
+      endDateTime.setHours(startHour + 1, startMinute, 0, 0);
     }
 
     const event = {
