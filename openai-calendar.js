@@ -89,17 +89,33 @@ function getRelativeDate(dayName) {
   const today = new Date();
   const targetDay = days[dayName.toLowerCase()];
   const currentDay = today.getDay();
-
-  // Calculate days to add
   let daysToAdd = targetDay - currentDay;
-  if (daysToAdd <= 0) {
-    // If the day has passed this week
-    daysToAdd += 7;
-  }
+  if (daysToAdd <= 0) daysToAdd += 7;
 
   const result = new Date(today);
   result.setDate(today.getDate() + daysToAdd);
   return result;
+}
+
+// Simplify date parsing
+function parseDate(dateStr) {
+  if (!dateStr) return new Date();
+  const lowerDate = (dateStr || "").toLowerCase();
+
+  const today = new Date();
+  if (lowerDate.includes("today")) return today;
+  if (lowerDate.includes("tomorrow")) {
+    const tomorrow = new Date(today);
+    tomorrow.setDate(today.getDate() + 1);
+    return tomorrow;
+  }
+
+  const dayMatches = lowerDate.match(
+    /(?:this\s+)?(monday|tuesday|wednesday|thursday|friday|saturday|sunday)/i
+  );
+  if (dayMatches) return getRelativeDate(dayMatches[1]);
+
+  return new Date(dateStr);
 }
 
 // Update getEvents function
@@ -112,28 +128,35 @@ async function getEvents({ start_date, end_date, attendee, keyword }) {
       ?.toLowerCase()
       .match(/morning|afternoon|evening/)?.[0];
 
-    // Handle relative dates more consistently
-    function parseDate(dateStr) {
-      if (!dateStr) return new Date();
-
-      const lowerDate = dateStr.toLowerCase();
-      // Handle day names
-      if (lowerDate.includes("monday")) return getRelativeDate("monday");
-      if (lowerDate.includes("tuesday")) return getRelativeDate("tuesday");
-      if (lowerDate.includes("wednesday")) return getRelativeDate("wednesday");
-      if (lowerDate.includes("thursday")) return getRelativeDate("thursday");
-      if (lowerDate.includes("friday")) return getRelativeDate("friday");
-      if (lowerDate.includes("saturday")) return getRelativeDate("saturday");
-      if (lowerDate.includes("sunday")) return getRelativeDate("sunday");
-
-      // Handle ISO dates
-      return new Date(dateStr);
+    // Extract date from keyword if not explicitly provided
+    if (!start_date && keyword) {
+      const dayMatch = keyword
+        .toLowerCase()
+        .match(
+          /(?:this\s+)?(today|tomorrow|monday|tuesday|wednesday|thursday|friday|saturday|sunday)/i
+        );
+      if (dayMatch) {
+        start_date = dayMatch[0];
+      }
     }
 
-    // Set start time
-    timeMin = parseDate(start_date);
+    // If start_date is an ISO date but keyword contains a day reference, prefer the day reference
+    if (start_date && keyword) {
+      const dayMatch = keyword
+        .toLowerCase()
+        .match(
+          /(?:this\s+)?(today|tomorrow|monday|tuesday|wednesday|thursday|friday|saturday|sunday)/i
+        );
+      if (dayMatch && start_date.match(/^\d{4}-\d{2}-\d{2}$/)) {
+        start_date = dayMatch[0];
+      }
+    }
 
-    // Set hours based on time of day
+    console.log("Start date before parsing:", start_date); // Debug log
+    timeMin = parseDate(start_date);
+    console.log("Parsed timeMin:", timeMin); // Debug log
+
+    // Set hours based on time of day or start of day
     if (timeOfDay && TIME_RANGES[timeOfDay]) {
       timeMin.setHours(TIME_RANGES[timeOfDay].start, 0, 0, 0);
     } else {
@@ -141,17 +164,16 @@ async function getEvents({ start_date, end_date, attendee, keyword }) {
     }
 
     // Set end time to end of the same day if not specified
-    if (end_date) {
-      timeMax = parseDate(end_date);
-    } else {
-      timeMax = new Date(timeMin);
-    }
-
+    timeMax = end_date ? parseDate(end_date) : new Date(timeMin);
+    // Set hours based on time of day or end of day
     if (timeOfDay && TIME_RANGES[timeOfDay]) {
       timeMax.setHours(TIME_RANGES[timeOfDay].end, 0, 0, 0);
     } else {
       timeMax.setHours(23, 59, 59, 999);
     }
+
+    console.log("Final timeMin:", timeMin.toISOString()); // Debug log
+    console.log("Final timeMax:", timeMax.toISOString()); // Debug log
 
     const response = await calendar.events.list({
       calendarId: "primary",
@@ -191,21 +213,43 @@ async function getEvents({ start_date, end_date, attendee, keyword }) {
       return "No events found for the specified criteria.";
     }
 
-    // Format the output
-    const dateStr = timeMin.toLocaleDateString("en-US", {
-      weekday: "short",
-      month: "short",
-      day: "numeric",
-      year: "numeric",
-    });
-    return `${dateStr}:${events
-      .map(
-        (event) =>
-          `\n  - ${event.summary} at ${new Date(
-            event.start.dateTime || event.start.date
-          ).toLocaleTimeString()}`
-      )
-      .join("")}`;
+    // Group events by date
+    const eventsByDate = events.reduce((acc, event) => {
+      const eventDate = new Date(event.start.dateTime || event.start.date);
+      const dateStr = eventDate.toLocaleDateString("en-US", {
+        weekday: "short",
+        month: "short",
+        day: "numeric",
+        year: "numeric",
+      });
+
+      if (!acc[dateStr]) {
+        acc[dateStr] = [];
+      }
+      acc[dateStr].push(event);
+      return acc;
+    }, {});
+
+    // Format output with dates
+    return Object.entries(eventsByDate)
+      .sort(([dateA], [dateB]) => new Date(dateA) - new Date(dateB))
+      .map(([date, dayEvents]) => {
+        const eventsStr = dayEvents
+          .sort((a, b) => {
+            const timeA = new Date(a.start.dateTime || a.start.date);
+            const timeB = new Date(b.start.dateTime || b.start.date);
+            return timeA - timeB;
+          })
+          .map(
+            (event) =>
+              `  - ${event.summary} at ${new Date(
+                event.start.dateTime || event.start.date
+              ).toLocaleTimeString()}`
+          )
+          .join("\n");
+        return `${date}:\n${eventsStr}`;
+      })
+      .join("\n\n");
   } catch (error) {
     console.error("Error fetching events:", error);
     throw error;
@@ -224,12 +268,12 @@ const functions = [
         start_date: {
           type: "string",
           description:
-            "Start date - can be ISO format (YYYY-MM-DD) or relative (e.g., 'friday', 'next monday')",
+            "Start date - use relative terms like 'today', 'tomorrow', 'friday', 'next monday' instead of ISO dates",
         },
         end_date: {
           type: "string",
           description:
-            "End date - can be ISO format (YYYY-MM-DD) or relative (e.g., 'friday', 'next monday')",
+            "End date - use relative terms like 'today', 'tomorrow', 'friday', 'next monday' instead of ISO dates",
         },
         attendee: {
           type: "string",
@@ -238,7 +282,7 @@ const functions = [
         keyword: {
           type: "string",
           description:
-            "Keyword to filter meeting topics (e.g., 'strategy', 'morning')",
+            "Keyword to filter meeting topics (e.g., 'strategy', 'morning') or additional date context (e.g., 'this friday')",
         },
       },
       required: [],
@@ -269,7 +313,7 @@ const functions = [
   {
     name: "create_meeting",
     description:
-      "Create a new calendar event/meeting. Requires summary (topic), date, start time, and duration/end time.",
+      "Create a new calendar event/meeting. Must confirm duration before creating.",
     parameters: {
       type: "object",
       properties: {
@@ -289,7 +333,7 @@ const functions = [
         end_time: {
           type: "string",
           description:
-            "End time in HH:MM format (24-hour) (required - calculated from duration)",
+            "End time in HH:MM format (24-hour) (required - must be confirmed with user)",
         },
         recurrence: {
           type: "string",
@@ -322,7 +366,7 @@ const functions = [
         date: {
           type: "string",
           description:
-            "Date of the meeting in ISO format (YYYY-MM-DD) (required)",
+            "Current date of the meeting - can use relative terms like 'today', 'tomorrow', 'friday'",
         },
         summary: {
           type: "string",
@@ -339,6 +383,11 @@ const functions = [
             summary: {
               type: "string",
               description: "New title for the meeting",
+            },
+            date: {
+              type: "string",
+              description:
+                "New date for the meeting - can use relative terms like 'today', 'tomorrow', 'friday'",
             },
             start_time: {
               type: "string",
@@ -384,24 +433,14 @@ async function processCalendarRequest(userInput) {
       messages: [
         {
           role: "system",
-          content: `You are a helpful calendar assistant. For meeting creation:
-- Always ask for start time if not specified, but make intelligent suggestions based on context
-  - For lunch-related events, suggest 12:00 PM or 12:30 PM
-  - For morning meetings, suggest 9:00 AM or 10:00 AM
-  - For afternoon events, suggest 2:00 PM or 3:00 PM
-- Always ask for meeting duration if not specified
-- Only create the meeting once both time and duration are confirmed
-- Don't assume email addresses for attendee names
-- For multiple meeting requests:
-  - Handle them in sequence
-  - Confirm all details before creating any meetings
-  - Show a summary of all meetings to be created
-  - Create them in chronological order
-For rescheduling:
-- Use modify_meeting function to actually change the meeting time/date
-- Keep the same duration when moving meetings
-- Confirm the change was successful
-For other requests, help users find and manage their calendar events.`,
+          content: `You are a calendar assistant that helps manage meetings.
+- For new meetings:
+  - Always confirm time and duration before creating
+  - For lunch: suggest 12:00 PM, ask duration
+  - For morning: suggest 9:00 AM, ask duration
+  - For afternoon: suggest 2:00 PM, ask duration
+- For rescheduling: Use modify_meeting with relative dates
+- Keep responses clear and concise`,
         },
         {
           role: "system",
@@ -681,10 +720,63 @@ async function modifyMeeting({ date, summary, time, updates }) {
   try {
     const calendar = await getCalendarClient();
 
+    // Use the same date parsing logic as getEvents
+    function parseDate(dateStr) {
+      if (!dateStr) return new Date();
+
+      const lowerDate = (dateStr || "").toLowerCase();
+      console.log("Parsing date for modification:", lowerDate);
+
+      // Handle relative day references
+      const today = new Date();
+      if (lowerDate.includes("today")) return today;
+      if (lowerDate.includes("tomorrow")) {
+        const tomorrow = new Date(today);
+        tomorrow.setDate(today.getDate() + 1);
+        return tomorrow;
+      }
+
+      // Handle day names (this week)
+      const dayMatches = lowerDate.match(
+        /(?:this\s+)?(monday|tuesday|wednesday|thursday|friday|saturday|sunday)/i
+      );
+      if (dayMatches) {
+        return getRelativeDate(dayMatches[1]);
+      }
+
+      // Handle ISO dates
+      return new Date(dateStr);
+    }
+
+    // Parse the target date
+    const targetDate = parseDate(date);
+    console.log("Target date for modification:", targetDate);
+
+    // If updates contain a day name, update the date
+    if (updates.date) {
+      const newDate = parseDate(updates.date);
+      console.log("New date from updates:", newDate);
+      // Update the event date while keeping the same time
+      const eventDateTime = new Date(event.start.dateTime || event.start.date);
+      eventDateTime.setFullYear(newDate.getFullYear());
+      eventDateTime.setMonth(newDate.getMonth());
+      eventDateTime.setDate(newDate.getDate());
+      updatedEvent.start = {
+        dateTime: eventDateTime.toISOString(),
+        timeZone: event.start.timeZone,
+      };
+      // Maintain the same duration
+      const newEnd = new Date(eventDateTime.getTime() + eventDuration);
+      updatedEvent.end = {
+        dateTime: newEnd.toISOString(),
+        timeZone: event.end.timeZone,
+      };
+    }
+
     // First find the meeting
-    const startTime = new Date(date);
+    const startTime = new Date(targetDate);
     startTime.setHours(0, 0, 0);
-    const endTime = new Date(date);
+    const endTime = new Date(targetDate);
     endTime.setHours(23, 59, 59);
 
     const response = await calendar.events.list({
@@ -721,9 +813,9 @@ async function modifyMeeting({ date, summary, time, updates }) {
 
     const event = events[0];
     const eventDateTime = new Date(event.start.dateTime || event.start.date);
-    const eventDuration =
-      new Date(event.end.dateTime).getTime() -
-      new Date(event.start.dateTime).getTime();
+    const originalStart = new Date(event.start.dateTime);
+    const originalEnd = new Date(event.end.dateTime);
+    const eventDuration = originalEnd.getTime() - originalStart.getTime();
 
     // Prepare the update
     const updatedEvent = {
@@ -739,7 +831,7 @@ async function modifyMeeting({ date, summary, time, updates }) {
         .split(":")
         .map(Number);
       const newStart = new Date(eventDateTime);
-      newStart.setHours(startHour, startMinute, 0);
+      newStart.setHours(startHour, startMinute, 0, 0); // Added milliseconds
       updatedEvent.start = {
         dateTime: newStart.toISOString(),
         timeZone: event.start.timeZone,
@@ -771,13 +863,13 @@ async function modifyMeeting({ date, summary, time, updates }) {
       sendUpdates: "all",
     });
 
-    const oldStart = new Date(event.start.dateTime);
-    const newStart = new Date(updatedEvent.start.dateTime);
     return `
 Meeting rescheduled successfully:
 - ${updatedEvent.summary}
-- From: ${oldStart.toLocaleString()}
-- To: ${newStart.toLocaleString()}
+- From: ${originalStart.toLocaleString()} - ${originalEnd.toLocaleString()}
+- To: ${new Date(updatedEvent.start.dateTime).toLocaleString()} - ${new Date(
+      updatedEvent.end.dateTime
+    ).toLocaleString()}
 ${updatedEvent.description ? `- Description: ${updatedEvent.description}` : ""}
 ${updatedEvent.location ? `- Location: ${updatedEvent.location}` : ""}
     `.trim();
