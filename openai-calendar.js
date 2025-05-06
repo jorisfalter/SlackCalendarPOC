@@ -455,6 +455,9 @@ const openai = new OpenAI({
 // Add this at the top level of the file
 let conversationHistory = [];
 
+// Add at the top of the file
+const processedMessages = new Set();
+
 // Main interaction function
 async function processCalendarRequest(userInput) {
   try {
@@ -691,6 +694,7 @@ async function createMeeting({
 }) {
   try {
     const calendar = await getCalendarClient();
+    const timeZone = "Europe/Amsterdam";
 
     // Create start datetime
     const startDateTime = new Date(date);
@@ -712,11 +716,11 @@ async function createMeeting({
       location,
       start: {
         dateTime: startDateTime.toISOString(),
-        timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        timeZone: timeZone,
       },
       end: {
         dateTime: endDateTime.toISOString(),
-        timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        timeZone: timeZone,
       },
       // Add recurrence if specified
       recurrence: recurrence
@@ -933,6 +937,13 @@ app.post("/slack/events", async (req, res) => {
 
   // Get the event
   const { event } = req.body;
+
+  // Check if we've already processed this message
+  if (processedMessages.has(event.ts)) {
+    console.log("Duplicate message, ignoring:", event.ts);
+    return res.sendStatus(200);
+  }
+  processedMessages.add(event.ts);
 
   try {
     console.log("Received message:", event.text);
