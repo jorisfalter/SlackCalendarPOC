@@ -1,0 +1,791 @@
+import dotenv from "dotenv";
+import { google } from "googleapis";
+import axios from "axios";
+import OpenAI from "openai";
+dotenv.config();
+
+// Add these time range constants at the top of the file
+const TIME_RANGES = {
+  morning: { start: 6, end: 12 }, // 6:00 AM - 12:00 PM
+  afternoon: { start: 12, end: 18 }, // 12:00 PM - 6:00 PM
+  evening: { start: 18, end: 23 }, // 6:00 PM - 11:00 PM
+};
+
+// Helper functions for week calculations (keeping these from the original)
+function getStartOfWeek(date) {
+  const start = new Date(date);
+  start.setDate(start.getDate() - start.getDay());
+  start.setHours(0, 0, 0, 0);
+  return start;
+}
+
+function getEndOfWeek(date) {
+  const end = new Date(date);
+  end.setDate(end.getDate() - end.getDay() + 6);
+  end.setHours(23, 59, 59, 999);
+  return end;
+}
+
+// Token refresh and calendar client setup (keeping these from the original)
+const refreshAccessToken = async (refreshToken) => {
+  try {
+    const { data } = await axios.post(
+      "https://oauth2.googleapis.com/token",
+      null,
+      {
+        params: {
+          client_id: process.env.GOOGLE_CLIENT_ID,
+          client_secret: process.env.GOOGLE_CLIENT_SECRET,
+          refresh_token: refreshToken,
+          grant_type: "refresh_token",
+        },
+      }
+    );
+    return data.access_token;
+  } catch (err) {
+    console.error(
+      "❌ Failed to refresh token:",
+      err.response?.data || err.message
+    );
+    throw new Error("Unable to refresh Google access token");
+  }
+};
+
+const getCalendarClient = async () => {
+  const oauth2Client = new google.auth.OAuth2(
+    process.env.GOOGLE_CLIENT_ID,
+    process.env.GOOGLE_CLIENT_SECRET,
+    process.env.GOOGLE_REDIRECT_URI2
+  );
+
+  try {
+    const accessToken = await refreshAccessToken(
+      process.env.GOOGLE_REFRESH_TOKEN
+    );
+    oauth2Client.setCredentials({
+      access_token: accessToken,
+      refresh_token: process.env.GOOGLE_REFRESH_TOKEN,
+    });
+  } catch (error) {
+    console.error("Error refreshing access token:", error);
+    throw new Error("Failed to refresh access token");
+  }
+
+  return google.calendar({ version: "v3", auth: oauth2Client });
+};
+
+// Add these helper functions at the top
+function getRelativeDate(dayName) {
+  const days = {
+    sunday: 0,
+    monday: 1,
+    tuesday: 2,
+    wednesday: 3,
+    thursday: 4,
+    friday: 5,
+    saturday: 6,
+  };
+
+  const today = new Date();
+  const targetDay = days[dayName.toLowerCase()];
+  const currentDay = today.getDay();
+
+  // Calculate days to add
+  let daysToAdd = targetDay - currentDay;
+  if (daysToAdd <= 0) {
+    // If the day has passed this week
+    daysToAdd += 7;
+  }
+
+  const result = new Date(today);
+  result.setDate(today.getDate() + daysToAdd);
+  return result;
+}
+
+// Update getEvents function
+async function getEvents({ start_date, end_date, attendee, keyword }) {
+  try {
+    const calendar = await getCalendarClient();
+
+    let timeMin, timeMax;
+    const timeOfDay = keyword
+      ?.toLowerCase()
+      .match(/morning|afternoon|evening/)?.[0];
+
+    // Handle relative dates more consistently
+    function parseDate(dateStr) {
+      if (!dateStr) return new Date();
+
+      const lowerDate = dateStr.toLowerCase();
+      // Handle day names
+      if (lowerDate.includes("monday")) return getRelativeDate("monday");
+      if (lowerDate.includes("tuesday")) return getRelativeDate("tuesday");
+      if (lowerDate.includes("wednesday")) return getRelativeDate("wednesday");
+      if (lowerDate.includes("thursday")) return getRelativeDate("thursday");
+      if (lowerDate.includes("friday")) return getRelativeDate("friday");
+      if (lowerDate.includes("saturday")) return getRelativeDate("saturday");
+      if (lowerDate.includes("sunday")) return getRelativeDate("sunday");
+
+      // Handle ISO dates
+      return new Date(dateStr);
+    }
+
+    // Set start time
+    timeMin = parseDate(start_date);
+
+    // Set hours based on time of day
+    if (timeOfDay && TIME_RANGES[timeOfDay]) {
+      timeMin.setHours(TIME_RANGES[timeOfDay].start, 0, 0, 0);
+    } else {
+      timeMin.setHours(0, 0, 0, 0);
+    }
+
+    // Set end time to end of the same day if not specified
+    if (end_date) {
+      timeMax = parseDate(end_date);
+    } else {
+      timeMax = new Date(timeMin);
+    }
+
+    if (timeOfDay && TIME_RANGES[timeOfDay]) {
+      timeMax.setHours(TIME_RANGES[timeOfDay].end, 0, 0, 0);
+    } else {
+      timeMax.setHours(23, 59, 59, 999);
+    }
+
+    const response = await calendar.events.list({
+      calendarId: "primary",
+      timeMin: timeMin.toISOString(),
+      timeMax: timeMax.toISOString(),
+      singleEvents: true,
+      orderBy: "startTime",
+      q: keyword?.replace(/morning|afternoon|evening/g, "").trim(),
+    });
+
+    let events = response.data.items;
+
+    // Additional time-of-day filtering
+    if (timeOfDay && TIME_RANGES[timeOfDay]) {
+      events = events.filter((event) => {
+        const eventTime = new Date(event.start.dateTime || event.start.date);
+        const hour = eventTime.getHours();
+        return (
+          hour >= TIME_RANGES[timeOfDay].start &&
+          hour < TIME_RANGES[timeOfDay].end
+        );
+      });
+    }
+
+    // Filter by attendee if specified
+    if (attendee) {
+      events = events.filter((event) =>
+        event.attendees?.some(
+          (a) =>
+            a.email.toLowerCase().includes(attendee.toLowerCase()) ||
+            (a.displayName || "").toLowerCase().includes(attendee.toLowerCase())
+        )
+      );
+    }
+
+    if (!events || events.length === 0) {
+      return "No events found for the specified criteria.";
+    }
+
+    // Format the output
+    const dateStr = timeMin.toLocaleDateString("en-US", {
+      weekday: "short",
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    });
+    return `${dateStr}:${events
+      .map(
+        (event) =>
+          `\n  - ${event.summary} at ${new Date(
+            event.start.dateTime || event.start.date
+          ).toLocaleTimeString()}`
+      )
+      .join("")}`;
+  } catch (error) {
+    console.error("Error fetching events:", error);
+    throw error;
+  }
+}
+
+// OpenAI function definition
+const functions = [
+  {
+    name: "get_events",
+    description:
+      "Get calendar events based on filters like dates or attendees.",
+    parameters: {
+      type: "object",
+      properties: {
+        start_date: {
+          type: "string",
+          description:
+            "Start date - can be ISO format (YYYY-MM-DD) or relative (e.g., 'friday', 'next monday')",
+        },
+        end_date: {
+          type: "string",
+          description:
+            "End date - can be ISO format (YYYY-MM-DD) or relative (e.g., 'friday', 'next monday')",
+        },
+        attendee: {
+          type: "string",
+          description: "Name or email of the person in the meeting",
+        },
+        keyword: {
+          type: "string",
+          description:
+            "Keyword to filter meeting topics (e.g., 'strategy', 'morning')",
+        },
+      },
+      required: [],
+    },
+  },
+  {
+    name: "get_meeting_details",
+    description: "Get detailed information about a specific meeting.",
+    parameters: {
+      type: "object",
+      properties: {
+        date: {
+          type: "string",
+          description: "Date of the meeting in ISO format (YYYY-MM-DD)",
+        },
+        summary: {
+          type: "string",
+          description: "Title/summary of the meeting to find",
+        },
+        time: {
+          type: "string",
+          description: "Approximate time of the meeting (HH:MM)",
+        },
+      },
+      required: ["date"],
+    },
+  },
+  {
+    name: "create_meeting",
+    description:
+      "Create a new calendar event/meeting. Requires summary (topic), date, start time, and duration/end time.",
+    parameters: {
+      type: "object",
+      properties: {
+        summary: {
+          type: "string",
+          description: "Title/topic of the meeting (required)",
+        },
+        date: {
+          type: "string",
+          description:
+            "Date of the meeting in ISO format (YYYY-MM-DD) (required)",
+        },
+        start_time: {
+          type: "string",
+          description: "Start time in HH:MM format (24-hour) (required)",
+        },
+        end_time: {
+          type: "string",
+          description:
+            "End time in HH:MM format (24-hour) (required - calculated from duration)",
+        },
+        recurrence: {
+          type: "string",
+          description:
+            "Day of the week for recurring meetings (e.g., 'Thursday' for weekly on Thursdays)",
+        },
+        description: {
+          type: "string",
+          description: "Optional meeting description or agenda",
+        },
+        attendees: {
+          type: "array",
+          items: { type: "string" },
+          description: "Optional list of attendee email addresses",
+        },
+        location: {
+          type: "string",
+          description: "Optional meeting location or video conference link",
+        },
+      },
+      required: ["summary", "date", "start_time", "end_time"],
+    },
+  },
+  {
+    name: "modify_meeting",
+    description: "Modify an existing calendar event/meeting.",
+    parameters: {
+      type: "object",
+      properties: {
+        date: {
+          type: "string",
+          description:
+            "Date of the meeting in ISO format (YYYY-MM-DD) (required)",
+        },
+        summary: {
+          type: "string",
+          description: "Current title/summary of the meeting to find",
+        },
+        time: {
+          type: "string",
+          description: "Approximate current time of the meeting (HH:MM)",
+        },
+        updates: {
+          type: "object",
+          description: "New values to update the meeting with",
+          properties: {
+            summary: {
+              type: "string",
+              description: "New title for the meeting",
+            },
+            start_time: {
+              type: "string",
+              description: "New start time in HH:MM format (24-hour)",
+            },
+            end_time: {
+              type: "string",
+              description: "New end time in HH:MM format (24-hour)",
+            },
+            description: {
+              type: "string",
+              description: "New meeting description",
+            },
+            location: {
+              type: "string",
+              description: "New meeting location",
+            },
+          },
+        },
+      },
+      required: ["date"],
+    },
+  },
+];
+
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY,
+});
+
+// Add this at the top level of the file
+let conversationHistory = [];
+
+// Main interaction function
+async function processCalendarRequest(userInput) {
+  try {
+    const today = new Date().toISOString().split("T")[0];
+
+    // Add user's new message to history
+    conversationHistory.push({ role: "user", content: userInput });
+
+    const completion = await openai.chat.completions.create({
+      model: "gpt-4",
+      messages: [
+        {
+          role: "system",
+          content: `You are a helpful calendar assistant. For meeting creation:
+- Always ask for start time if not specified, but make intelligent suggestions based on context
+  - For lunch-related events, suggest 12:00 PM or 12:30 PM
+  - For morning meetings, suggest 9:00 AM or 10:00 AM
+  - For afternoon events, suggest 2:00 PM or 3:00 PM
+- Always ask for meeting duration if not specified
+- Only create the meeting once both time and duration are confirmed
+- Don't assume email addresses for attendee names
+- For multiple meeting requests:
+  - Handle them in sequence
+  - Confirm all details before creating any meetings
+  - Show a summary of all meetings to be created
+  - Create them in chronological order
+For rescheduling:
+- Use modify_meeting function to actually change the meeting time/date
+- Keep the same duration when moving meetings
+- Confirm the change was successful
+For other requests, help users find and manage their calendar events.`,
+        },
+        {
+          role: "system",
+          content: `Today's date is ${today}.`,
+        },
+        ...conversationHistory,
+      ],
+      functions,
+      function_call: "auto",
+    });
+
+    const message = completion.choices[0].message;
+    let response;
+
+    if (message.function_call) {
+      const args = JSON.parse(message.function_call.arguments);
+      if (message.function_call.name === "get_events") {
+        response = await getEvents(args);
+      } else if (message.function_call.name === "get_meeting_details") {
+        response = await getMeetingDetails(args);
+      } else if (message.function_call.name === "create_meeting") {
+        response = await createMeeting(args);
+      } else if (message.function_call.name === "modify_meeting") {
+        response = await modifyMeeting(args);
+      }
+    } else {
+      // If no function was called, use the assistant's response to ask for more details
+      response = message.content;
+    }
+
+    // Add assistant's response to history
+    conversationHistory.push({
+      role: "assistant",
+      content: response,
+      function_call: message.function_call,
+    });
+
+    return response;
+  } catch (error) {
+    console.error("Error processing request:", error);
+    return `Error: ${error.message}`;
+  }
+}
+
+// Modify the test function to handle multiple interactions
+const test = async () => {
+  const { createInterface } = await import("readline/promises");
+  const rl = createInterface({
+    input: process.stdin,
+    output: process.stdout,
+  });
+
+  while (true) {
+    const input = await rl.question(
+      "\nEnter your calendar request (or 'exit' to quit): "
+    );
+
+    if (input.toLowerCase() === "exit") {
+      console.log("Goodbye! 👋");
+      rl.close();
+      break;
+    }
+
+    const reply = await processCalendarRequest(input);
+    console.log("\n🤖 Reply:", reply);
+  }
+};
+
+// Test calendar access before starting
+const testCalendarAccess = async () => {
+  try {
+    const calendar = await getCalendarClient();
+    const response = await calendar.events.list({
+      calendarId: "primary",
+      timeMin: new Date().toISOString(),
+      maxResults: 1,
+    });
+    console.log("Calendar access successful:", response.data);
+  } catch (error) {
+    console.error("Calendar access failed:", error);
+  }
+};
+
+// Add this new function to fetch meeting details
+async function getMeetingDetails({ date, summary, time }) {
+  try {
+    const calendar = await getCalendarClient();
+
+    const startTime = new Date(date);
+    startTime.setHours(0, 0, 0);
+    const endTime = new Date(date);
+    endTime.setHours(23, 59, 59);
+
+    const response = await calendar.events.list({
+      calendarId: "primary",
+      timeMin: startTime.toISOString(),
+      timeMax: endTime.toISOString(),
+      singleEvents: false,
+    });
+
+    let events = response.data.items;
+
+    // Filter by summary if provided
+    if (summary) {
+      events = events.filter((event) =>
+        event.summary.toLowerCase().includes(summary.toLowerCase())
+      );
+    }
+
+    // Filter by approximate time if provided
+    if (time) {
+      const [targetHour, targetMinute] = time.split(":").map(Number);
+      events = events.filter((event) => {
+        const eventTime = new Date(event.start.dateTime || event.start.date);
+        const hourDiff = Math.abs(eventTime.getHours() - targetHour);
+        return hourDiff <= 1;
+      });
+    }
+
+    if (!events.length) {
+      return "No matching meeting found.";
+    }
+
+    const event = events[0];
+
+    // Calculate duration
+    const startDateTime = new Date(event.start.dateTime || event.start.date);
+    const endDateTime = new Date(event.end.dateTime || event.end.date);
+    const durationMinutes = Math.round(
+      (endDateTime - startDateTime) / (1000 * 60)
+    );
+    const durationText =
+      durationMinutes >= 60
+        ? `${Math.floor(durationMinutes / 60)} hour${
+            Math.floor(durationMinutes / 60) !== 1 ? "s" : ""
+          }${
+            durationMinutes % 60 ? ` and ${durationMinutes % 60} minutes` : ""
+          }`
+        : `${durationMinutes} minutes`;
+
+    // Parse recurrence rule if it exists
+    let recurrenceInfo = "";
+    if (event.recurrence) {
+      const rrule = event.recurrence[0];
+      if (rrule.includes("FREQ=WEEKLY")) {
+        const day = rrule.match(/BYDAY=([A-Z]{2})/)?.[1];
+        const dayMap = {
+          MO: "Mondays",
+          TU: "Tuesdays",
+          WE: "Wednesdays",
+          TH: "Thursdays",
+          FR: "Fridays",
+          SA: "Saturdays",
+          SU: "Sundays",
+        };
+        recurrenceInfo = `Repeats weekly on ${dayMap[day] || day}`;
+      }
+    }
+
+    return `
+Meeting: ${event.summary}
+Time: ${startDateTime.toLocaleString()} (${durationText})
+${
+  event.description
+    ? `Description: ${event.description}`
+    : "No description available"
+}
+${event.location ? `Location: ${event.location}` : ""}
+${
+  event.attendees
+    ? `Attendees: ${event.attendees.map((a) => a.email).join(", ")}`
+    : ""
+}
+${recurrenceInfo ? `Recurrence: ${recurrenceInfo}` : "One-time meeting"}
+    `.trim();
+  } catch (error) {
+    console.error("Error fetching meeting details:", error);
+    throw error;
+  }
+}
+
+// Add this helper function at the top level
+function generateRecurrenceRule(frequency = "WEEKLY", day) {
+  // Ensure day is in correct format (MO, TU, WE, TH, FR, SA, SU)
+  const dayMap = {
+    monday: "MO",
+    tuesday: "TU",
+    wednesday: "WE",
+    thursday: "TH",
+    friday: "FR",
+    saturday: "SA",
+    sunday: "SU",
+  };
+
+  const formattedDay = dayMap[day.toLowerCase()];
+  if (!formattedDay) {
+    throw new Error(`Invalid day: ${day}`);
+  }
+
+  return `RRULE:FREQ=${frequency};BYDAY=${formattedDay}`;
+}
+
+// Update the createMeeting function
+async function createMeeting({
+  summary,
+  date,
+  start_time,
+  end_time,
+  description,
+  attendees,
+  location,
+  recurrence,
+}) {
+  try {
+    const calendar = await getCalendarClient();
+
+    // Create start datetime
+    const startDateTime = new Date(date);
+    const [startHour, startMinute] = start_time.split(":").map(Number);
+    startDateTime.setHours(startHour, startMinute, 0);
+
+    // Create end datetime
+    const endDateTime = new Date(date);
+    if (end_time) {
+      const [endHour, endMinute] = end_time.split(":").map(Number);
+      endDateTime.setHours(endHour, endMinute, 0);
+    } else {
+      endDateTime.setHours(startHour + 1, startMinute, 0);
+    }
+
+    const event = {
+      summary,
+      description,
+      location,
+      start: {
+        dateTime: startDateTime.toISOString(),
+        timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+      },
+      end: {
+        dateTime: endDateTime.toISOString(),
+        timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+      },
+      // Add recurrence if specified
+      recurrence: recurrence
+        ? [generateRecurrenceRule("WEEKLY", recurrence)]
+        : undefined,
+      // Only include attendees if they're actual email addresses
+      attendees: attendees
+        ?.filter((a) => a.includes("@"))
+        .map((email) => ({ email })),
+    };
+
+    const response = await calendar.events.insert({
+      calendarId: "primary",
+      requestBody: event,
+      sendUpdates: "all",
+    });
+
+    const recurrenceText = recurrence ? " (Recurring)" : "";
+    return `
+Meeting created successfully${recurrenceText}:
+- ${summary}
+- ${startDateTime.toLocaleString()} to ${endDateTime.toLocaleString()}
+${description ? `- Description: ${description}` : ""}
+${location ? `- Location: ${location}` : ""}
+${attendees ? `- With: ${attendees.join(", ")}` : ""}
+${recurrence ? `- Repeats: Weekly on ${recurrence}s` : ""}
+    `.trim();
+  } catch (error) {
+    console.error("Error creating meeting:", error);
+    throw error;
+  }
+}
+
+// Update the modifyMeeting function
+async function modifyMeeting({ date, summary, time, updates }) {
+  try {
+    const calendar = await getCalendarClient();
+
+    // First find the meeting
+    const startTime = new Date(date);
+    startTime.setHours(0, 0, 0);
+    const endTime = new Date(date);
+    endTime.setHours(23, 59, 59);
+
+    const response = await calendar.events.list({
+      calendarId: "primary",
+      timeMin: startTime.toISOString(),
+      timeMax: endTime.toISOString(),
+      singleEvents: true,
+      orderBy: "startTime",
+    });
+
+    let events = response.data.items;
+
+    // Filter by summary if provided
+    if (summary) {
+      events = events.filter((event) =>
+        event.summary.toLowerCase().includes(summary.toLowerCase())
+      );
+    }
+
+    // Filter by approximate time if provided
+    if (time) {
+      const [targetHour, targetMinute] = time.split(":").map(Number);
+      events = events.filter((event) => {
+        const eventTime = new Date(event.start.dateTime || event.start.date);
+        const hourDiff = Math.abs(eventTime.getHours() - targetHour);
+        const minuteDiff = Math.abs(eventTime.getMinutes() - targetMinute);
+        return hourDiff === 0 && minuteDiff < 30; // More precise time matching
+      });
+    }
+
+    if (!events.length) {
+      return "No matching meeting found to modify.";
+    }
+
+    const event = events[0];
+    const eventDateTime = new Date(event.start.dateTime || event.start.date);
+    const eventDuration =
+      new Date(event.end.dateTime).getTime() -
+      new Date(event.start.dateTime).getTime();
+
+    // Prepare the update
+    const updatedEvent = {
+      ...event,
+      summary: updates.summary || event.summary,
+      description: updates.description || event.description,
+      location: updates.location || event.location,
+    };
+
+    // Update times if provided
+    if (updates.start_time) {
+      const [startHour, startMinute] = updates.start_time
+        .split(":")
+        .map(Number);
+      const newStart = new Date(eventDateTime);
+      newStart.setHours(startHour, startMinute, 0);
+      updatedEvent.start = {
+        dateTime: newStart.toISOString(),
+        timeZone: event.start.timeZone,
+      };
+
+      // Maintain the same duration when changing start time
+      const newEnd = new Date(newStart.getTime() + eventDuration);
+      updatedEvent.end = {
+        dateTime: newEnd.toISOString(),
+        timeZone: event.end.timeZone,
+      };
+    }
+
+    if (updates.end_time) {
+      const [endHour, endMinute] = updates.end_time.split(":").map(Number);
+      const newEnd = new Date(eventDateTime);
+      newEnd.setHours(endHour, endMinute, 0);
+      updatedEvent.end = {
+        dateTime: newEnd.toISOString(),
+        timeZone: event.end.timeZone,
+      };
+    }
+
+    // Perform the update
+    const updateResponse = await calendar.events.update({
+      calendarId: "primary",
+      eventId: event.id,
+      requestBody: updatedEvent,
+      sendUpdates: "all",
+    });
+
+    const oldStart = new Date(event.start.dateTime);
+    const newStart = new Date(updatedEvent.start.dateTime);
+    return `
+Meeting rescheduled successfully:
+- ${updatedEvent.summary}
+- From: ${oldStart.toLocaleString()}
+- To: ${newStart.toLocaleString()}
+${updatedEvent.description ? `- Description: ${updatedEvent.description}` : ""}
+${updatedEvent.location ? `- Location: ${updatedEvent.location}` : ""}
+    `.trim();
+  } catch (error) {
+    console.error("Error modifying meeting:", error);
+    throw error;
+  }
+}
+
+await testCalendarAccess();
+test();
