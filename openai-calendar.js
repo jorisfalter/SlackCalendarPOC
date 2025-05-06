@@ -907,7 +907,6 @@ app.post("/slack/events", async (req, res) => {
   // Handle URL verification
   if (req.body.type === "url_verification") {
     console.log("Verification challenge received:", req.body.challenge);
-    // Return exactly what Slack sends in the challenge field
     return res.json({
       challenge: req.body.challenge,
     });
@@ -929,13 +928,13 @@ app.post("/slack/events", async (req, res) => {
     // Process the calendar request
     const response = await processCalendarRequest(event.text);
 
-    // Send the response back to Slack
+    // Send the response back to Slack as a DM
     await axios.post(
       "https://slack.com/api/chat.postMessage",
       {
-        channel: event.channel,
+        channel: event.user, // Send to user's DM instead of the channel
         text: response,
-        thread_ts: event.thread_ts || event.ts,
+        // Remove thread_ts to avoid threading
       },
       {
         headers: {
