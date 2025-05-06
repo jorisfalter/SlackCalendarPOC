@@ -2,6 +2,7 @@ import dotenv from "dotenv";
 import { google } from "googleapis";
 import axios from "axios";
 import OpenAI from "openai";
+import express from "express";
 dotenv.config();
 
 // Add these time range constants at the top of the file
@@ -879,5 +880,80 @@ ${updatedEvent.location ? `- Location: ${updatedEvent.location}` : ""}
   }
 }
 
-await testCalendarAccess();
-test();
+// Create Express server
+const app = express();
+app.use(express.json());
+
+// Handle Slack messages
+app.post("/slack/events", async (req, res) => {
+  // Log the entire request body for debugging
+  console.log("Received Slack request:", req.body);
+
+  // Handle URL verification
+  if (req.body.type === "url_verification") {
+    console.log("Verification challenge received:", req.body.challenge);
+    // Return exactly what Slack sends in the challenge field
+    return res.json({
+      challenge: req.body.challenge,
+    });
+  }
+
+  // Get the event
+  const { event } = req.body;
+
+  try {
+    console.log("Received message:", event.text);
+    console.log("From user:", event.user);
+
+    // Only respond to messages from the specified user
+    if (event.user !== process.env.SLACK_USER_ID) {
+      console.log(`Ignoring message from user ${event.user}`);
+      return res.sendStatus(200);
+    }
+
+    // Process the calendar request
+    const response = await processCalendarRequest(event.text);
+
+    // Send the response back to Slack
+    await axios.post(
+      "https://slack.com/api/chat.postMessage",
+      {
+        channel: event.channel,
+        text: response,
+        thread_ts: event.thread_ts || event.ts,
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${process.env.SLACK_BOT_TOKEN2}`,
+          "Content-Type": "application/json",
+        },
+      }
+    );
+
+    res.sendStatus(200);
+  } catch (error) {
+    console.error("Error handling Slack message:", error);
+    res.sendStatus(500);
+  }
+});
+
+// Simple health check
+app.get("/health", (req, res) => {
+  res.send("OK");
+});
+
+// Change the startup logic
+if (process.argv[2] === "--cli") {
+  // Start CLI interface
+  (async () => {
+    await testCalendarAccess();
+    await test();
+  })();
+} else {
+  // Start Slack server (default)
+  const port = process.env.PORT || 3000;
+  app.listen(port, () => {
+    console.log(`🚀 Server is running on port ${port}`);
+    console.log(`✅ Listening for user: ${process.env.SLACK_USER_ID}`);
+  });
+}
