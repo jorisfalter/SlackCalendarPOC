@@ -701,23 +701,31 @@ async function createMeeting({
     const calendar = await getCalendarClient();
     const timeZone = "Europe/Amsterdam";
 
-    // Create start datetime with explicit timezone handling
+    // Parse the date in Amsterdam timezone
+    const [year, month, day] = date.split("-").map(Number);
     const [startHour, startMinute] = start_time.split(":").map(Number);
-    const startDateTime = new Date(date);
-    // Adjust for timezone offset
-    const offset = startDateTime.getTimezoneOffset();
-    startDateTime.setMinutes(startDateTime.getMinutes() - offset);
-    startDateTime.setHours(startHour, startMinute, 0, 0);
 
-    // Create end datetime with same timezone handling
-    const endDateTime = new Date(date);
-    endDateTime.setMinutes(endDateTime.getMinutes() - offset);
-    if (end_time) {
-      const [endHour, endMinute] = end_time.split(":").map(Number);
-      endDateTime.setHours(endHour, endMinute, 0, 0);
-    } else {
-      endDateTime.setHours(startHour + 1, startMinute, 0, 0);
-    }
+    // Create date in Amsterdam timezone
+    const startDateTime = new Date(
+      Date.UTC(
+        year,
+        month - 1, // JavaScript months are 0-based
+        day,
+        startHour - 2, // Convert to UTC (Amsterdam is UTC+2)
+        startMinute
+      )
+    );
+
+    // Handle end time similarly
+    const endDateTime = new Date(
+      Date.UTC(
+        year,
+        month - 1,
+        day,
+        end_time ? parseInt(end_time.split(":")[0]) - 2 : startHour - 1,
+        end_time ? parseInt(end_time.split(":")[1]) : startMinute
+      )
+    );
 
     const event = {
       summary,
