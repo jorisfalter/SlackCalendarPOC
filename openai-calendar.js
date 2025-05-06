@@ -12,18 +12,46 @@ const TIME_RANGES = {
   evening: { start: 18, end: 23 }, // 6:00 PM - 11:00 PM
 };
 
-// Helper functions for week calculations (keeping these from the original)
+// Helper functions for week calculations
 function getStartOfWeek(date) {
+  const timeZone = "Europe/Amsterdam";
   const start = new Date(date);
-  start.setDate(start.getDate() - start.getDay());
+
+  // Get to Monday (1) from whatever day we're on
+  while (start.getDay() !== 1) {
+    start.setDate(start.getDate() - 1);
+  }
+
+  // Set to start of day in Amsterdam time
   start.setHours(0, 0, 0, 0);
+
+  // Convert to UTC for API
+  const offset = -2; // Amsterdam is UTC+2
+  start.setHours(start.getHours() - offset);
+
   return start;
 }
 
 function getEndOfWeek(date) {
+  console.log("getEndOfWeek called with date:", date);
+  const timeZone = "Europe/Amsterdam";
   const end = new Date(date);
-  end.setDate(end.getDate() - end.getDay() + 6);
+
+  // First get to Sunday
+  while (end.getDay() !== 0) {
+    end.setDate(end.getDate() + 1);
+    console.log("Moving to next day:", end.toISOString(), "Day:", end.getDay());
+  }
+
+  // Set to end of day in Amsterdam time
   end.setHours(23, 59, 59, 999);
+  console.log("After setting hours:", end.toISOString());
+
+  // Convert to UTC for API
+  const offset = -2; // Amsterdam is UTC+2
+  end.setHours(end.getHours() - offset);
+  console.log("After timezone adjustment:", end.toISOString());
+
   return end;
 }
 
@@ -149,20 +177,33 @@ function findOverlappingMeetings(events) {
 async function getEvents({ start_date, end_date, attendee, keyword }) {
   try {
     const calendar = await getCalendarClient();
+    const timeZone = "Europe/Amsterdam";
     let timeMin, timeMax;
 
-    // If looking for meetings "this week", set appropriate range
-    if (keyword?.toLowerCase().includes("this week")) {
-      timeMin = getStartOfWeek(new Date());
-      timeMax = new Date(timeMin); // Initialize timeMax
-      timeMax.setDate(timeMin.getDate() + 7); // Add 7 days
-      timeMax.setHours(23, 59, 59, 999);
+    console.log("Keyword received:", keyword);
 
-      console.log("Searching for week range:", {
+    // Extract "this week" from keyword if present
+    const isThisWeek = keyword && /this\s*we+k/i.test(keyword);
+    // Extract topic keywords, removing "this week" if present
+    const topicKeyword = keyword
+      ?.toLowerCase()
+      .replace(/this\s*we+k/i, "")
+      .trim();
+
+    // If looking for meetings "this week", set appropriate range
+    if (isThisWeek) {
+      console.log("Detected 'this week' request");
+      timeMin = getStartOfWeek(new Date());
+      timeMax = getEndOfWeek(new Date());
+
+      console.log("Week range calculation:", {
         start: timeMin.toISOString(),
         end: timeMax.toISOString(),
+        startDay: timeMin.getDay(),
+        endDay: timeMax.getDay(),
       });
     } else {
+      console.log("Not a 'this week' request");
       const timeOfDay = keyword
         ?.toLowerCase()
         .match(/morning|afternoon|evening/)?.[0];
@@ -179,26 +220,12 @@ async function getEvents({ start_date, end_date, attendee, keyword }) {
         }
       }
 
-      // If start_date is an ISO date but keyword contains a day reference, prefer the day reference
-      if (start_date && keyword) {
-        const dayMatch = keyword
-          .toLowerCase()
-          .match(
-            /(?:this\s+)?(today|tomorrow|monday|tuesday|wednesday|thursday|friday|saturday|sunday)/i
-          );
-        if (dayMatch && start_date.match(/^\d{4}-\d{2}-\d{2}$/)) {
-          start_date = dayMatch[0];
-        }
-      }
-
-      console.log("Start date before parsing:", start_date); // Debug log
       timeMin = parseDate(start_date);
-      console.log("Parsed timeMin:", timeMin); // Debug log
+      timeMax = new Date(timeMin); // Initialize timeMax with timeMin
 
       // Set hours based on time of day or start of day
       if (keyword?.toLowerCase().includes("morning")) {
         timeMin.setHours(0, 0, 0, 0);
-        timeMax = new Date(timeMin);
         timeMax.setHours(12, 0, 0, 0); // End at noon
       } else if (timeOfDay && TIME_RANGES[timeOfDay]) {
         timeMin.setHours(TIME_RANGES[timeOfDay].start, 0, 0, 0);
@@ -207,9 +234,6 @@ async function getEvents({ start_date, end_date, attendee, keyword }) {
         timeMin.setHours(0, 0, 0, 0);
         timeMax.setHours(23, 59, 59, 999);
       }
-
-      console.log("Final timeMin:", timeMin.toISOString()); // Debug log
-      console.log("Final timeMax:", timeMax.toISOString()); // Debug log
     }
 
     const response = await calendar.events.list({
@@ -218,10 +242,29 @@ async function getEvents({ start_date, end_date, attendee, keyword }) {
       timeMax: timeMax.toISOString(),
       singleEvents: true,
       orderBy: "startTime",
-      q: keyword?.replace(/morning|afternoon|evening/g, "").trim(),
+      timeZone: timeZone,
+      maxResults: 2500, // Increase this to get more events
+    });
+
+    console.log("Week range:", {
+      timeMin: timeMin.toISOString(),
+      timeMax: timeMax.toISOString(),
+      events: response.data.items.map((e) => ({
+        summary: e.summary,
+        start: e.start.dateTime || e.start.date,
+        recurring: !!e.recurringEventId,
+      })),
     });
 
     let events = response.data.items;
+
+    // Filter by topic if provided
+    if (topicKeyword && !/morning|afternoon|evening/i.test(topicKeyword)) {
+      console.log("Filtering by topic:", topicKeyword);
+      events = events.filter((event) =>
+        event.summary.toLowerCase().includes(topicKeyword)
+      );
+    }
 
     // Additional time-of-day filtering
     if (keyword && keyword.match(/morning|afternoon|evening/)) {
@@ -356,7 +399,7 @@ const functions = [
         keyword: {
           type: "string",
           description:
-            "Keyword to filter meeting topics (e.g., 'strategy', 'morning') or additional date context (e.g., 'this friday')",
+            "Keyword to filter meetings. Use 'this week' to get all meetings this week, or 'morning/afternoon/evening' for time of day",
         },
       },
       required: [],
@@ -511,6 +554,14 @@ async function processCalendarRequest(userInput) {
         {
           role: "system",
           content: `You are a calendar assistant that helps manage meetings.
+- For calendar queries:
+  - When user asks about meetings with a topic (e.g. "marketing meetings"), include the topic in the keyword
+  - When user asks about "this week", include "this week" in the keyword
+  - For "meetings about X this week", pass both the topic and "this week" in the keyword
+  - Examples:
+    - "do i have any meetings about marketing this week" -> keyword="marketing this week"
+    - "what marketing meetings do i have" -> keyword="marketing"
+    - "what meetings do i have this week" -> keyword="this week"
 - For new meetings:
   - Ask for duration if not specified
   - Accept user's preferred time if given
