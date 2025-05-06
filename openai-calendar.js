@@ -194,18 +194,15 @@ async function getEvents({ start_date, end_date, attendee, keyword }) {
       console.log("Parsed timeMin:", timeMin); // Debug log
 
       // Set hours based on time of day or start of day
-      if (timeOfDay && TIME_RANGES[timeOfDay]) {
-        timeMin.setHours(TIME_RANGES[timeOfDay].start, 0, 0, 0);
-      } else {
+      if (keyword?.toLowerCase().includes("morning")) {
         timeMin.setHours(0, 0, 0, 0);
-      }
-
-      // Set end time to end of the same day if not specified
-      timeMax = end_date ? parseDate(end_date) : new Date(timeMin);
-      // Set hours based on time of day or end of day
-      if (timeOfDay && TIME_RANGES[timeOfDay]) {
+        timeMax = new Date(timeMin);
+        timeMax.setHours(12, 0, 0, 0); // End at noon
+      } else if (timeOfDay && TIME_RANGES[timeOfDay]) {
+        timeMin.setHours(TIME_RANGES[timeOfDay].start, 0, 0, 0);
         timeMax.setHours(TIME_RANGES[timeOfDay].end, 0, 0, 0);
       } else {
+        timeMin.setHours(0, 0, 0, 0);
         timeMax.setHours(23, 59, 59, 999);
       }
 
@@ -291,8 +288,7 @@ async function getEvents({ start_date, end_date, attendee, keyword }) {
         // Add warning if there are overlaps
         let output = "";
         if (overlappingEvents.size > 0) {
-          output +=
-            "⚠️ Warning: Found overlapping meetings (marked with ⚠️)\n\n";
+          output += "Found overlapping meetings\n\n";
         }
 
         const eventsStr = uniqueEvents
@@ -307,7 +303,7 @@ async function getEvents({ start_date, end_date, attendee, keyword }) {
             );
             const isOverlapping = overlappingEvents.has(event.id);
             // Format time in local timezone
-            return `  - ${isOverlapping ? "⚠️ " : ""}${
+            return `  - ${isOverlapping ? "" : ""}${
               event.summary
             } at ${eventTime.toLocaleTimeString("en-US", {
               hour: "2-digit",
