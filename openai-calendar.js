@@ -149,13 +149,15 @@ function findOverlappingMeetings(events) {
 async function getEvents({ start_date, end_date, attendee, keyword }) {
   try {
     const calendar = await getCalendarClient();
-
     let timeMin, timeMax;
 
     // If looking for meetings "this week", set appropriate range
     if (keyword?.toLowerCase().includes("this week")) {
       timeMin = getStartOfWeek(new Date());
-      timeMax = getEndOfWeek(new Date());
+      timeMax = new Date(timeMin); // Initialize timeMax
+      timeMax.setDate(timeMin.getDate() + 7); // Add 7 days
+      timeMax.setHours(23, 59, 59, 999);
+
       console.log("Searching for week range:", {
         start: timeMin.toISOString(),
         end: timeMax.toISOString(),
