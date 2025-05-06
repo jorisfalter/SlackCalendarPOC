@@ -119,62 +119,73 @@ function parseDate(dateStr) {
   return new Date(dateStr);
 }
 
-// Update getEvents function to handle timezone and prevent duplicates
+// Update getEvents function
 async function getEvents({ start_date, end_date, attendee, keyword }) {
   try {
     const calendar = await getCalendarClient();
 
     let timeMin, timeMax;
-    const timeOfDay = keyword
-      ?.toLowerCase()
-      .match(/morning|afternoon|evening/)?.[0];
 
-    // Extract date from keyword if not explicitly provided
-    if (!start_date && keyword) {
-      const dayMatch = keyword
-        .toLowerCase()
-        .match(
-          /(?:this\s+)?(today|tomorrow|monday|tuesday|wednesday|thursday|friday|saturday|sunday)/i
-        );
-      if (dayMatch) {
-        start_date = dayMatch[0];
-      }
-    }
-
-    // If start_date is an ISO date but keyword contains a day reference, prefer the day reference
-    if (start_date && keyword) {
-      const dayMatch = keyword
-        .toLowerCase()
-        .match(
-          /(?:this\s+)?(today|tomorrow|monday|tuesday|wednesday|thursday|friday|saturday|sunday)/i
-        );
-      if (dayMatch && start_date.match(/^\d{4}-\d{2}-\d{2}$/)) {
-        start_date = dayMatch[0];
-      }
-    }
-
-    console.log("Start date before parsing:", start_date); // Debug log
-    timeMin = parseDate(start_date);
-    console.log("Parsed timeMin:", timeMin); // Debug log
-
-    // Set hours based on time of day or start of day
-    if (timeOfDay && TIME_RANGES[timeOfDay]) {
-      timeMin.setHours(TIME_RANGES[timeOfDay].start, 0, 0, 0);
+    // If looking for meetings "this week", set appropriate range
+    if (keyword?.toLowerCase().includes("this week")) {
+      timeMin = getStartOfWeek(new Date());
+      timeMax = getEndOfWeek(new Date());
+      console.log("Searching for week range:", {
+        start: timeMin.toISOString(),
+        end: timeMax.toISOString(),
+      });
     } else {
-      timeMin.setHours(0, 0, 0, 0);
-    }
+      const timeOfDay = keyword
+        ?.toLowerCase()
+        .match(/morning|afternoon|evening/)?.[0];
 
-    // Set end time to end of the same day if not specified
-    timeMax = end_date ? parseDate(end_date) : new Date(timeMin);
-    // Set hours based on time of day or end of day
-    if (timeOfDay && TIME_RANGES[timeOfDay]) {
-      timeMax.setHours(TIME_RANGES[timeOfDay].end, 0, 0, 0);
-    } else {
-      timeMax.setHours(23, 59, 59, 999);
-    }
+      // Extract date from keyword if not explicitly provided
+      if (!start_date && keyword) {
+        const dayMatch = keyword
+          .toLowerCase()
+          .match(
+            /(?:this\s+)?(today|tomorrow|monday|tuesday|wednesday|thursday|friday|saturday|sunday)/i
+          );
+        if (dayMatch) {
+          start_date = dayMatch[0];
+        }
+      }
 
-    console.log("Final timeMin:", timeMin.toISOString()); // Debug log
-    console.log("Final timeMax:", timeMax.toISOString()); // Debug log
+      // If start_date is an ISO date but keyword contains a day reference, prefer the day reference
+      if (start_date && keyword) {
+        const dayMatch = keyword
+          .toLowerCase()
+          .match(
+            /(?:this\s+)?(today|tomorrow|monday|tuesday|wednesday|thursday|friday|saturday|sunday)/i
+          );
+        if (dayMatch && start_date.match(/^\d{4}-\d{2}-\d{2}$/)) {
+          start_date = dayMatch[0];
+        }
+      }
+
+      console.log("Start date before parsing:", start_date); // Debug log
+      timeMin = parseDate(start_date);
+      console.log("Parsed timeMin:", timeMin); // Debug log
+
+      // Set hours based on time of day or start of day
+      if (timeOfDay && TIME_RANGES[timeOfDay]) {
+        timeMin.setHours(TIME_RANGES[timeOfDay].start, 0, 0, 0);
+      } else {
+        timeMin.setHours(0, 0, 0, 0);
+      }
+
+      // Set end time to end of the same day if not specified
+      timeMax = end_date ? parseDate(end_date) : new Date(timeMin);
+      // Set hours based on time of day or end of day
+      if (timeOfDay && TIME_RANGES[timeOfDay]) {
+        timeMax.setHours(TIME_RANGES[timeOfDay].end, 0, 0, 0);
+      } else {
+        timeMax.setHours(23, 59, 59, 999);
+      }
+
+      console.log("Final timeMin:", timeMin.toISOString()); // Debug log
+      console.log("Final timeMax:", timeMax.toISOString()); // Debug log
+    }
 
     const response = await calendar.events.list({
       calendarId: "primary",
@@ -188,26 +199,34 @@ async function getEvents({ start_date, end_date, attendee, keyword }) {
     let events = response.data.items;
 
     // Additional time-of-day filtering
-    if (timeOfDay && TIME_RANGES[timeOfDay]) {
+    if (keyword && keyword.match(/morning|afternoon|evening/)) {
       events = events.filter((event) => {
         const eventTime = new Date(event.start.dateTime || event.start.date);
         const hour = eventTime.getHours();
         return (
-          hour >= TIME_RANGES[timeOfDay].start &&
-          hour < TIME_RANGES[timeOfDay].end
+          hour >=
+            TIME_RANGES[keyword.toLowerCase().replace(/[^a-z]/g, "")].start &&
+          hour < TIME_RANGES[keyword.toLowerCase().replace(/[^a-z]/g, "")].end
         );
       });
     }
 
     // Filter by attendee if specified
     if (attendee) {
-      events = events.filter((event) =>
-        event.attendees?.some(
-          (a) =>
-            a.email.toLowerCase().includes(attendee.toLowerCase()) ||
-            (a.displayName || "").toLowerCase().includes(attendee.toLowerCase())
-        )
-      );
+      console.log("Filtering by attendee:", attendee); // Debug log
+      events = events.filter((event) => {
+        // Check if event has attendees
+        if (!event.attendees) {
+          return false;
+        }
+
+        return event.attendees.some((a) => {
+          const attendeeName = (a.displayName || a.email || "").toLowerCase();
+          const searchName = attendee.toLowerCase();
+          console.log(`Comparing ${attendeeName} with ${searchName}`); // Debug log
+          return attendeeName.includes(searchName);
+        });
+      });
     }
 
     if (!events || events.length === 0) {
