@@ -473,12 +473,19 @@ async function processCalendarRequest(userInput) {
           role: "system",
           content: `You are a calendar assistant that helps manage meetings.
 - For new meetings:
-  - Always confirm time and duration before creating
-  - For lunch: suggest 12:00 PM, ask duration
-  - For morning: suggest 9:00 AM, ask duration
-  - For afternoon: suggest 2:00 PM, ask duration
+  - Ask for duration if not specified
+  - Accept user's preferred time if given
+  - Only suggest times if user hasn't specified:
+    - Lunch: 12:00 PM
+    - Morning: 9:00 AM
+    - Afternoon: 2:00 PM
+  - When attendees are mentioned:
+    - Ask for their email address if not provided
+    - Format: "Could you provide Frank's email address to send the invitation?"
 - For rescheduling: Use modify_meeting with relative dates
-- Keep responses clear and concise`,
+- Keep responses clear and concise
+- Don't question user's choices once they're clear
+- Don't suggest changes to confirmed times/durations`,
         },
         {
           role: "system",
