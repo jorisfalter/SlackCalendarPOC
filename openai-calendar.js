@@ -258,22 +258,21 @@ async function getEvents({ start_date, end_date, attendee, keyword }) {
 
     // Group events by date
     const eventsByDate = events.reduce((acc, event) => {
-      const eventDate = new Date(event.start.dateTime || event.start.date);
-      const dateStr = eventDate.toLocaleDateString("en-US", {
+      const date = new Date(
+        event.start.dateTime || event.start.date
+      ).toLocaleDateString("en-US", {
         weekday: "short",
         month: "short",
         day: "numeric",
         year: "numeric",
+        timeZone: "Europe/Amsterdam",
       });
-
-      if (!acc[dateStr]) {
-        acc[dateStr] = [];
-      }
-      acc[dateStr].push(event);
+      if (!acc[date]) acc[date] = [];
+      acc[date].push(event);
       return acc;
     }, {});
 
-    // Format output with dates, using local timezone
+    // Format output with dates
     return Object.entries(eventsByDate)
       .sort(([dateA], [dateB]) => new Date(dateA) - new Date(dateB))
       .map(([date, dayEvents]) => {
@@ -283,11 +282,17 @@ async function getEvents({ start_date, end_date, attendee, keyword }) {
             index === self.findIndex((e) => e.id === event.id)
         );
 
-        const overlappingEvents = findOverlappingMeetings(uniqueEvents);
+        // Only check for overlaps if explicitly asked
+        const overlappingEvents = keyword?.toLowerCase().includes("overlap")
+          ? findOverlappingMeetings(uniqueEvents)
+          : new Set();
 
-        // Add warning if there are overlaps
+        // Add warning only if explicitly asked about overlaps
         let output = "";
-        if (overlappingEvents.size > 0) {
+        if (
+          keyword?.toLowerCase().includes("overlap") &&
+          overlappingEvents.size > 0
+        ) {
           output += "Found overlapping meetings\n\n";
         }
 
@@ -302,10 +307,11 @@ async function getEvents({ start_date, end_date, attendee, keyword }) {
               event.start.dateTime || event.start.date
             );
             const isOverlapping = overlappingEvents.has(event.id);
-            // Format time in local timezone
-            return `  - ${isOverlapping ? "" : ""}${
-              event.summary
-            } at ${eventTime.toLocaleTimeString("en-US", {
+            return `  - ${
+              isOverlapping && keyword?.toLowerCase().includes("overlap")
+                ? "⚠️ "
+                : ""
+            }${event.summary} at ${eventTime.toLocaleTimeString("en-US", {
               hour: "2-digit",
               minute: "2-digit",
               hour12: true,
