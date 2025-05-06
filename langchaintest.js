@@ -8,6 +8,21 @@ import { google } from "googleapis";
 import axios from "axios";
 dotenv.config();
 
+// Helper functions for week calculations
+function getStartOfWeek(date) {
+  const start = new Date(date);
+  start.setDate(start.getDate() - start.getDay()); // Start of week (Sunday)
+  start.setHours(0, 0, 0, 0);
+  return start;
+}
+
+function getEndOfWeek(date) {
+  const end = new Date(date);
+  end.setDate(end.getDate() - end.getDay() + 6); // End of week (Saturday)
+  end.setHours(23, 59, 59, 999);
+  return end;
+}
+
 const refreshAccessToken = async (refreshToken) => {
   try {
     const { data } = await axios.post(
@@ -61,7 +76,7 @@ const tools = [
   new DynamicTool({
     name: "listCalendarEvents",
     description:
-      "List calendar events or free slots for a specific day. Input should be a date in YYYY-MM-DD format.",
+      "List calendar events or free slots. Input can be a specific date (YYYY-MM-DD) or a week request (e.g., 'this week', 'next week', or 'week of YYYY-MM-DD').",
     func: async (input) => {
       try {
         // Handle both string input and JSON object input
@@ -77,15 +92,39 @@ const tools = [
           date = input.input || input.date || input;
         }
 
-        console.log("Fetching calendar events for:", date); // Debug log
-
         const calendar = await getCalendarClient();
+        let startTime, endTime;
 
-        const startTime = new Date(date);
-        startTime.setHours(0, 0, 0);
+        // Check if it's a week request
+        if (date.toLowerCase().includes("week")) {
+          if (date.toLowerCase().includes("this week")) {
+            startTime = getStartOfWeek(new Date());
+            endTime = getEndOfWeek(new Date());
+          } else if (date.toLowerCase().includes("next week")) {
+            const nextWeek = new Date();
+            nextWeek.setDate(nextWeek.getDate() + 7);
+            startTime = getStartOfWeek(nextWeek);
+            endTime = getEndOfWeek(nextWeek);
+          } else {
+            // Assume format is "week of YYYY-MM-DD"
+            const specificDate = new Date(date.replace("week of ", ""));
+            startTime = getStartOfWeek(specificDate);
+            endTime = getEndOfWeek(specificDate);
+          }
+        } else {
+          // Handle single day request
+          startTime = new Date(date);
+          startTime.setHours(0, 0, 0);
+          endTime = new Date(date);
+          endTime.setHours(23, 59, 59);
+        }
 
-        const endTime = new Date(date);
-        endTime.setHours(23, 59, 59);
+        console.log(
+          "Fetching calendar events from:",
+          startTime,
+          "to:",
+          endTime
+        );
 
         const response = await calendar.events.list({
           calendarId: "primary",
@@ -97,17 +136,34 @@ const tools = [
 
         const events = response.data.items;
         if (!events || events.length === 0) {
-          return "No events found for this day.";
+          return "No events found for this period.";
         }
 
-        return events
-          .map(
-            (event) =>
-              `- ${event.summary} at ${new Date(
-                event.start.dateTime || event.start.date
-              ).toLocaleTimeString()}`
-          )
-          .join("\n");
+        // Group events by date
+        const eventsByDate = events.reduce((acc, event) => {
+          const eventDate = new Date(
+            event.start.dateTime || event.start.date
+          ).toDateString();
+          if (!acc[eventDate]) {
+            acc[eventDate] = [];
+          }
+          acc[eventDate].push(event);
+          return acc;
+        }, {});
+
+        // Format the output
+        return Object.entries(eventsByDate)
+          .map(([date, dayEvents]) => {
+            return `${date}:\n${dayEvents
+              .map(
+                (event) =>
+                  `  - ${event.summary} at ${new Date(
+                    event.start.dateTime || event.start.date
+                  ).toLocaleTimeString()}`
+              )
+              .join("\n")}`;
+          })
+          .join("\n\n");
       } catch (error) {
         console.error("Error in listCalendarEvents:", error);
         if (error.message.includes("invalid_grant")) {
