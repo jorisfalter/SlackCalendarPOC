@@ -119,6 +119,32 @@ function parseDate(dateStr) {
   return new Date(dateStr);
 }
 
+// Add this helper function to check for overlapping meetings
+function findOverlappingMeetings(events) {
+  const overlaps = new Set();
+
+  for (let i = 0; i < events.length; i++) {
+    const event1Start = new Date(
+      events[i].start.dateTime || events[i].start.date
+    );
+    const event1End = new Date(events[i].end.dateTime || events[i].end.date);
+
+    for (let j = i + 1; j < events.length; j++) {
+      const event2Start = new Date(
+        events[j].start.dateTime || events[j].start.date
+      );
+      const event2End = new Date(events[j].end.dateTime || events[j].end.date);
+
+      if (event1Start < event2End && event2Start < event1End) {
+        overlaps.add(events[i].id);
+        overlaps.add(events[j].id);
+      }
+    }
+  }
+
+  return overlaps;
+}
+
 // Update getEvents function
 async function getEvents({ start_date, end_date, attendee, keyword }) {
   try {
@@ -260,6 +286,15 @@ async function getEvents({ start_date, end_date, attendee, keyword }) {
             index === self.findIndex((e) => e.id === event.id)
         );
 
+        const overlappingEvents = findOverlappingMeetings(uniqueEvents);
+
+        // Add warning if there are overlaps
+        let output = "";
+        if (overlappingEvents.size > 0) {
+          output +=
+            "⚠️ Warning: Found overlapping meetings (marked with ⚠️)\n\n";
+        }
+
         const eventsStr = uniqueEvents
           .sort((a, b) => {
             const timeA = new Date(a.start.dateTime || a.start.date);
@@ -270,19 +305,19 @@ async function getEvents({ start_date, end_date, attendee, keyword }) {
             const eventTime = new Date(
               event.start.dateTime || event.start.date
             );
+            const isOverlapping = overlappingEvents.has(event.id);
             // Format time in local timezone
-            return `  - ${event.summary} at ${eventTime.toLocaleTimeString(
-              "en-US",
-              {
-                hour: "2-digit",
-                minute: "2-digit",
-                hour12: true,
-                timeZone: "Europe/Amsterdam", // or your preferred timezone
-              }
-            )}`;
+            return `  - ${isOverlapping ? "⚠️ " : ""}${
+              event.summary
+            } at ${eventTime.toLocaleTimeString("en-US", {
+              hour: "2-digit",
+              minute: "2-digit",
+              hour12: true,
+              timeZone: "Europe/Amsterdam",
+            })}`;
           })
           .join("\n");
-        return `${date}:\n${eventsStr}`;
+        return `${date}:\n${output}${eventsStr}`;
       })
       .join("\n\n");
   } catch (error) {
