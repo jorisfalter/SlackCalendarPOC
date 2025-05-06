@@ -119,7 +119,7 @@ function parseDate(dateStr) {
   return new Date(dateStr);
 }
 
-// Update getEvents function
+// Update getEvents function to handle timezone and prevent duplicates
 async function getEvents({ start_date, end_date, attendee, keyword }) {
   try {
     const calendar = await getCalendarClient();
@@ -231,22 +231,37 @@ async function getEvents({ start_date, end_date, attendee, keyword }) {
       return acc;
     }, {});
 
-    // Format output with dates
+    // Format output with dates, using local timezone
     return Object.entries(eventsByDate)
       .sort(([dateA], [dateB]) => new Date(dateA) - new Date(dateB))
       .map(([date, dayEvents]) => {
-        const eventsStr = dayEvents
+        // Remove duplicates by event ID
+        const uniqueEvents = dayEvents.filter(
+          (event, index, self) =>
+            index === self.findIndex((e) => e.id === event.id)
+        );
+
+        const eventsStr = uniqueEvents
           .sort((a, b) => {
             const timeA = new Date(a.start.dateTime || a.start.date);
             const timeB = new Date(b.start.dateTime || b.start.date);
             return timeA - timeB;
           })
-          .map(
-            (event) =>
-              `  - ${event.summary} at ${new Date(
-                event.start.dateTime || event.start.date
-              ).toLocaleTimeString()}`
-          )
+          .map((event) => {
+            const eventTime = new Date(
+              event.start.dateTime || event.start.date
+            );
+            // Format time in local timezone
+            return `  - ${event.summary} at ${eventTime.toLocaleTimeString(
+              "en-US",
+              {
+                hour: "2-digit",
+                minute: "2-digit",
+                hour12: true,
+                timeZone: "Europe/Amsterdam", // or your preferred timezone
+              }
+            )}`;
+          })
           .join("\n");
         return `${date}:\n${eventsStr}`;
       })
