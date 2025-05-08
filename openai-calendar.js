@@ -7,14 +7,14 @@ dotenv.config();
 
 // Add these time range constants at the top of the file
 const TIME_RANGES = {
-  morning: { start: 6, end: 12 }, // 6:00 AM - 12:00 PM
-  afternoon: { start: 12, end: 18 }, // 12:00 PM - 6:00 PM
-  evening: { start: 18, end: 23 }, // 6:00 PM - 11:00 PM
+  morning: { start: 6, end: 12 }, // 6:00 AM - 12:00 PM ET
+  afternoon: { start: 12, end: 18 }, // 12:00 PM - 6:00 PM ET
+  evening: { start: 18, end: 23 }, // 6:00 PM - 11:00 PM ET
 };
 
 // Helper functions for week calculations
 function getStartOfWeek(date) {
-  const timeZone = "Europe/Amsterdam";
+  const timeZone = "America/New_York";
   const start = new Date(date);
 
   // Get to Monday (1) from whatever day we're on
@@ -22,35 +22,31 @@ function getStartOfWeek(date) {
     start.setDate(start.getDate() - 1);
   }
 
-  // Set to start of day in Amsterdam time
+  // Set to start of day in NY time
   start.setHours(0, 0, 0, 0);
 
   // Convert to UTC for API
-  const offset = -2; // Amsterdam is UTC+2
+  const offset = -4; // NY is UTC-4 (EDT)
   start.setHours(start.getHours() - offset);
 
   return start;
 }
 
 function getEndOfWeek(date) {
-  console.log("getEndOfWeek called with date:", date);
-  const timeZone = "Europe/Amsterdam";
+  const timeZone = "America/New_York";
   const end = new Date(date);
 
   // First get to Sunday
   while (end.getDay() !== 0) {
     end.setDate(end.getDate() + 1);
-    console.log("Moving to next day:", end.toISOString(), "Day:", end.getDay());
   }
 
-  // Set to end of day in Amsterdam time
+  // Set to end of day in NY time
   end.setHours(23, 59, 59, 999);
-  console.log("After setting hours:", end.toISOString());
 
   // Convert to UTC for API
-  const offset = -2; // Amsterdam is UTC+2
+  const offset = -4; // NY is UTC-4 (EDT)
   end.setHours(end.getHours() - offset);
-  console.log("After timezone adjustment:", end.toISOString());
 
   return end;
 }
@@ -177,24 +173,32 @@ function findOverlappingMeetings(events) {
 async function getEvents({ start_date, end_date, attendee, keyword }) {
   try {
     const calendar = await getCalendarClient();
-    const timeZone = "Europe/Amsterdam";
+    const timeZone = "America/New_York";
     let timeMin, timeMax;
 
     console.log("Keyword received:", keyword);
 
-    // Extract "this week" from keyword if present
+    // Extract week keywords
     const isThisWeek = keyword && /this\s*we+k/i.test(keyword);
-    // Extract topic keywords, removing "this week" if present
+    const isNextWeek = keyword && /next\s*we+k/i.test(keyword);
+
+    // Extract topic keywords, removing week references
     const topicKeyword = keyword
       ?.toLowerCase()
-      .replace(/this\s*we+k/i, "")
+      .replace(/(?:this|next)\s*we+k/i, "")
       .trim();
 
-    // If looking for meetings "this week", set appropriate range
-    if (isThisWeek) {
-      console.log("Detected 'this week' request");
-      timeMin = getStartOfWeek(new Date());
-      timeMax = getEndOfWeek(new Date());
+    // Handle week ranges
+    if (isThisWeek || isNextWeek) {
+      const baseDate = new Date();
+      if (isNextWeek) {
+        // Move to next week
+        baseDate.setDate(baseDate.getDate() + 7);
+      }
+
+      console.log(`Detected '${isNextWeek ? "next" : "this"} week' request`);
+      timeMin = getStartOfWeek(baseDate);
+      timeMax = getEndOfWeek(baseDate);
 
       console.log("Week range calculation:", {
         start: timeMin.toISOString(),
@@ -203,7 +207,7 @@ async function getEvents({ start_date, end_date, attendee, keyword }) {
         endDay: timeMax.getDay(),
       });
     } else {
-      console.log("Not a 'this week' request");
+      console.log("Not a 'this week' or 'next week' request");
       const timeOfDay = keyword
         ?.toLowerCase()
         .match(/morning|afternoon|evening/)?.[0];
@@ -310,7 +314,7 @@ async function getEvents({ start_date, end_date, attendee, keyword }) {
         month: "short",
         day: "numeric",
         year: "numeric",
-        timeZone: "Europe/Amsterdam",
+        timeZone: "America/New_York",
       });
       if (!acc[date]) acc[date] = [];
       acc[date].push(event);
@@ -360,7 +364,7 @@ async function getEvents({ start_date, end_date, attendee, keyword }) {
               hour: "2-digit",
               minute: "2-digit",
               hour12: true,
-              timeZone: "Europe/Amsterdam",
+              timeZone: "America/New_York",
             })}`;
           })
           .join("\n");
@@ -378,31 +382,25 @@ const functions = [
   {
     name: "get_events",
     description:
-      "Get calendar events based on filters like dates or attendees.",
+      "Get calendar events. Always use this function for any questions about meetings, including queries about specific weeks.",
     parameters: {
       type: "object",
       properties: {
-        start_date: {
-          type: "string",
-          description:
-            "Start date - use relative terms like 'today', 'tomorrow', 'friday', 'next monday' instead of ISO dates",
-        },
-        end_date: {
-          type: "string",
-          description:
-            "End date - use relative terms like 'today', 'tomorrow', 'friday', 'next monday' instead of ISO dates",
-        },
-        attendee: {
-          type: "string",
-          description: "Name or email of the person in the meeting",
-        },
         keyword: {
           type: "string",
           description:
-            "Keyword to filter meetings. Use 'this week' to get all meetings this week, or 'morning/afternoon/evening' for time of day",
+            "IMPORTANT: For time periods, pass the exact phrase: 'this week' or 'next week'. For topics, include the topic name. Examples: 'next week', 'this week', 'marketing', 'marketing next week'",
+        },
+        start_date: {
+          type: "string",
+          description:
+            "Start date in relative terms (today, tomorrow, friday). Do not use for week-based queries.",
+        },
+        attendee: {
+          type: "string",
+          description: "Filter by participant name/email",
         },
       },
-      required: [],
     },
   },
   {
@@ -430,45 +428,18 @@ const functions = [
   {
     name: "create_meeting",
     description:
-      "Create a new calendar event/meeting. Must confirm duration before creating.",
+      "Create a new calendar event. Ask for duration if not specified.",
     parameters: {
       type: "object",
       properties: {
-        summary: {
-          type: "string",
-          description: "Title/topic of the meeting (required)",
-        },
-        date: {
-          type: "string",
-          description:
-            "Date of the meeting in ISO format (YYYY-MM-DD) (required)",
-        },
-        start_time: {
-          type: "string",
-          description: "Start time in HH:MM format (24-hour) (required)",
-        },
-        end_time: {
-          type: "string",
-          description:
-            "End time in HH:MM format (24-hour) (required - must be confirmed with user)",
-        },
-        recurrence: {
-          type: "string",
-          description:
-            "Day of the week for recurring meetings (e.g., 'Thursday' for weekly on Thursdays)",
-        },
-        description: {
-          type: "string",
-          description: "Optional meeting description or agenda",
-        },
+        summary: { type: "string", description: "Meeting title" },
+        date: { type: "string", description: "YYYY-MM-DD format" },
+        start_time: { type: "string", description: "HH:MM in 24h format" },
+        end_time: { type: "string", description: "HH:MM in 24h format" },
         attendees: {
           type: "array",
           items: { type: "string" },
-          description: "Optional list of attendee email addresses",
-        },
-        location: {
-          type: "string",
-          description: "Optional meeting location or video conference link",
+          description: "Email addresses (ask if only name provided)",
         },
       },
       required: ["summary", "date", "start_time", "end_time"],
@@ -543,41 +514,51 @@ const processedMessages = new Set();
 // Main interaction function
 async function processCalendarRequest(userInput) {
   try {
-    const today = new Date().toISOString().split("T")[0];
+    const today = new Date();
+    const days = [
+      "Sunday",
+      "Monday",
+      "Tuesday",
+      "Wednesday",
+      "Thursday",
+      "Friday",
+      "Saturday",
+    ];
+    const currentDay = days[today.getDay()];
 
     // Add user's new message to history
     conversationHistory.push({ role: "user", content: userInput });
+
+    const EXAMPLES = [
+      {
+        user: "do i have any meetings about marketing this week",
+        assistant: {
+          function: "get_events",
+          args: { keyword: "marketing this week" },
+        },
+      },
+      {
+        user: "what marketing meetings do i have",
+        assistant: { function: "get_events", args: { keyword: "marketing" } },
+      },
+      {
+        user: "schedule a meeting with Frank tomorrow",
+        assistant:
+          "Could you provide Frank's email address to send the invitation?",
+      },
+    ];
+
+    const prompt = `You are a calendar assistant. Today is ${currentDay}, ${today.toLocaleDateString()}.
+When asked about meetings for a specific week, always include the week reference in the keyword parameter:
+- "what meetings do I have next week" -> keyword: "next week"
+- "what meetings do I have this week" -> keyword: "this week"`;
 
     const completion = await openai.chat.completions.create({
       model: "gpt-4",
       messages: [
         {
           role: "system",
-          content: `You are a calendar assistant that helps manage meetings.
-- For calendar queries:
-  - When user asks about meetings with a topic (e.g. "marketing meetings"), include the topic in the keyword
-  - When user asks about "this week", include "this week" in the keyword
-  - For "meetings about X this week", pass both the topic and "this week" in the keyword
-  - Examples:
-    - "do i have any meetings about marketing this week" -> keyword="marketing this week"
-    - "what marketing meetings do i have" -> keyword="marketing"
-    - "what meetings do i have this week" -> keyword="this week"
-- For new meetings:
-  - Ask for duration if not specified
-  - Accept user's preferred time if given
-  - When scheduling relative to other meetings:
-    - First find the referenced meeting
-    - Then schedule around it appropriately
-  - When attendees are mentioned:
-    - Ask for their email address if not provided
-    - Format: "Could you provide Frank's email address to send the invitation?"
-- Keep responses clear and concise
-- Don't question user's choices once they're clear
-- Don't suggest changes to confirmed times/durations`,
-        },
-        {
-          role: "system",
-          content: `Today's date is ${today}.`,
+          content: prompt,
         },
         ...conversationHistory,
       ],
@@ -586,6 +567,7 @@ async function processCalendarRequest(userInput) {
     });
 
     const message = completion.choices[0].message;
+    console.log("OpenAI function call:", message.function_call); // Debug log
     let response;
 
     if (message.function_call) {
@@ -789,19 +771,19 @@ async function createMeeting({
 }) {
   try {
     const calendar = await getCalendarClient();
-    const timeZone = "Europe/Amsterdam";
+    const timeZone = "America/New_York";
 
-    // Parse the date in Amsterdam timezone
+    // Parse the date in NY timezone
     const [year, month, day] = date.split("-").map(Number);
     const [startHour, startMinute] = start_time.split(":").map(Number);
 
-    // Create date in Amsterdam timezone
+    // Create date in NY timezone
     const startDateTime = new Date(
       Date.UTC(
         year,
-        month - 1, // JavaScript months are 0-based
+        month - 1,
         day,
-        startHour - 2, // Convert to UTC (Amsterdam is UTC+2)
+        startHour + 4, // Convert to UTC (NY is UTC-4)
         startMinute
       )
     );
@@ -812,7 +794,7 @@ async function createMeeting({
         year,
         month - 1,
         day,
-        end_time ? parseInt(end_time.split(":")[0]) - 2 : startHour - 1,
+        end_time ? parseInt(end_time.split(":")[0]) + 4 : startHour + 3,
         end_time ? parseInt(end_time.split(":")[1]) : startMinute
       )
     );
