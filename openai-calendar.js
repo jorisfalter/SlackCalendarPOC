@@ -1204,45 +1204,7 @@ app.post("/slack/events", async (req, res) => {
           "https://slack.com/api/chat.postMessage",
           {
             channel: event.user,
-            text: "Welcome! Before we start, what's your location?",
-            blocks: [
-              {
-                type: "section",
-                text: {
-                  type: "mrkdwn",
-                  text: "Welcome! Please select your timezone:",
-                },
-              },
-              {
-                type: "actions",
-                elements: [
-                  {
-                    type: "static_select",
-                    placeholder: {
-                      type: "plain_text",
-                      text: "Select your timezone",
-                    },
-                    options: Object.entries(TIMEZONES).map(([city, tz]) => ({
-                      text: {
-                        type: "plain_text",
-                        text: city.charAt(0).toUpperCase() + city.slice(1),
-                      },
-                      value: city,
-                    })),
-                    action_id: "set_timezone",
-                  },
-                ],
-              },
-              {
-                type: "context",
-                elements: [
-                  {
-                    type: "mrkdwn",
-                    text: "Don't see your city? Contact support to add more timezones.",
-                  },
-                ],
-              },
-            ],
+            text: "Welcome! Before we start, please tell me where you're located or what your timezone is.",
           },
           {
             headers: {
@@ -1384,4 +1346,54 @@ if (process.argv[2] === "--cli") {
     console.log(`🚀 Server is running on port ${port}`);
     console.log(`✅ Listening for user: ${process.env.SLACK_USER_ID}`);
   });
+}
+
+// Add this function to handle timezone identification
+async function identifyTimezone(userInput) {
+  const openai = new OpenAI({
+    apiKey: process.env.OPENAI_API_KEY,
+  });
+
+  const functions = [
+    {
+      name: "set_timezone",
+      description: "Set the user's timezone based on their location",
+      parameters: {
+        type: "object",
+        properties: {
+          timezone: {
+            type: "string",
+            description:
+              "IANA timezone identifier (e.g., 'Europe/Amsterdam', 'America/New_York')",
+          },
+          confidence: {
+            type: "number",
+            description:
+              "Confidence level in the timezone identification (0-1)",
+          },
+        },
+        required: ["timezone"],
+      },
+    },
+  ];
+
+  const response = await openai.chat.completions.create({
+    model: "gpt-3.5-turbo-0125",
+    messages: [
+      {
+        role: "system",
+        content:
+          "You are a timezone identification expert. Convert user location descriptions into IANA timezone identifiers (e.g., 'Europe/Amsterdam'). If unsure, use the most likely timezone and indicate lower confidence.",
+      },
+      {
+        role: "user",
+        content: userInput,
+      },
+    ],
+    functions,
+    function_call: { name: "set_timezone" },
+  });
+
+  const args = JSON.parse(response.choices[0].message.function_call.arguments);
+  return args;
 }
