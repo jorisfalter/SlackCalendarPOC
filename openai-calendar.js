@@ -1062,7 +1062,12 @@ app.post("/slack/events", async (req, res) => {
   const { event } = req.body;
 
   try {
-    if (event && event.type === "message" && !event.bot_id) {
+    // Ignore bot messages and check for duplicates first
+    if (event.bot_id || event.user === "U08PP6BS9FB") {
+      return res.sendStatus(200);
+    }
+
+    if (event && event.type === "message") {
       // Check if we've already processed this message
       if (processedMessages.has(event.ts)) {
         console.log("Duplicate message, ignoring:", event.ts);
