@@ -1063,6 +1063,19 @@ app.post("/slack/events", async (req, res) => {
 
   try {
     if (event && event.type === "message" && !event.bot_id) {
+      // Check if we've already processed this message
+      if (processedMessages.has(event.ts)) {
+        console.log("Duplicate message, ignoring:", event.ts);
+        return res.sendStatus(200);
+      }
+      processedMessages.add(event.ts);
+
+      // Keep the message IDs set from growing too large
+      if (processedMessages.size > 1000) {
+        const oldestMessages = Array.from(processedMessages).slice(0, 100);
+        oldestMessages.forEach((ts) => processedMessages.delete(ts));
+      }
+
       const slackUserId = event.user;
 
       // Find user in MongoDB
