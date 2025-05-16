@@ -396,6 +396,78 @@ async function getEvents(
   }
 }
 
+// Add this new function
+async function findOpenSlots({ date, duration = 30 }, calendar) {
+  try {
+    // Set up the time range for the specified date
+    const startOfDay = new Date(date);
+    startOfDay.setHours(8, 0, 0); // Start at 8 AM
+
+    const endOfDay = new Date(date);
+    endOfDay.setHours(18, 0, 0); // End at 6 PM
+
+    // Get all events for that day
+    const response = await calendar.events.list({
+      calendarId: "primary",
+      timeMin: startOfDay.toISOString(),
+      timeMax: endOfDay.toISOString(),
+      singleEvents: true,
+      orderBy: "startTime",
+    });
+
+    const events = response.data.items;
+    const busySlots = events.map((event) => ({
+      start: new Date(event.start.dateTime || event.start.date),
+      end: new Date(event.end.dateTime || event.end.date),
+    }));
+
+    // Find free slots
+    const freeSlots = [];
+    let currentTime = new Date(startOfDay);
+
+    busySlots.forEach((busy) => {
+      if (currentTime < busy.start) {
+        freeSlots.push({
+          start: new Date(currentTime),
+          end: new Date(busy.start),
+        });
+      }
+      currentTime = new Date(busy.end);
+    });
+
+    // Add final slot if there's time after last meeting
+    if (currentTime < endOfDay) {
+      freeSlots.push({
+        start: new Date(currentTime),
+        end: new Date(endOfDay),
+      });
+    }
+
+    // Filter slots that are long enough for the requested duration
+    const validSlots = freeSlots.filter(
+      (slot) => slot.end - slot.start >= duration * 60 * 1000
+    );
+
+    if (validSlots.length === 0) {
+      return "No open slots available for that duration.";
+    }
+
+    // Format the response
+    return (
+      `Available slots on ${startOfDay.toLocaleDateString()}:\n` +
+      validSlots
+        .map(
+          (slot) =>
+            `- ${slot.start.toLocaleTimeString()} to ${slot.end.toLocaleTimeString()}`
+        )
+        .join("\n")
+    );
+  } catch (error) {
+    console.error("Error finding open slots:", error);
+    throw error;
+  }
+}
+
 // OpenAI function definition
 const functions = [
   {
@@ -518,6 +590,24 @@ const functions = [
       required: ["date"],
     },
   },
+  {
+    name: "find_open_slots",
+    description: "Find available time slots on a specific date",
+    parameters: {
+      type: "object",
+      properties: {
+        date: {
+          type: "string",
+          description: "The date to check for open slots",
+        },
+        duration: {
+          type: "number",
+          description: "Minimum duration needed in minutes",
+        },
+      },
+      required: ["date"],
+    },
+  },
 ];
 
 const openai = new OpenAI({
@@ -599,6 +689,8 @@ When asked about meetings for a specific week, always include the week reference
         response = await createMeeting(args, calendarClient);
       } else if (message.function_call.name === "modify_meeting") {
         response = await modifyMeeting(args, calendarClient);
+      } else if (message.function_call.name === "find_open_slots") {
+        response = await findOpenSlots(args, calendarClient);
       }
     } else {
       // If no function was called, use the assistant's response to ask for more details
