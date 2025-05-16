@@ -3,7 +3,32 @@ import { google } from "googleapis";
 import axios from "axios";
 import OpenAI from "openai";
 import express from "express";
+import User from "./models/user.js";
+import mongoose from "mongoose";
 dotenv.config();
+
+// this file is the Calendar Bot in Slack
+
+// mongo connection
+const connectDB = async () => {
+  try {
+    const conn = await mongoose.connect(process.env.MONGO_URI2, {
+      dbName: "final", // ✅ explicitly set the db here
+    });
+
+    console.log(`✅ MongoDB Connected: ${conn.connection.host}`);
+    console.log(`✅ Database: ${conn.connection.name}`);
+
+    // If you have models defined, you don't need to create collections manually.
+    // For example:
+    // const users = await mongoose.model('User').find();
+  } catch (err) {
+    console.error("❌ MongoDB connection error:", err);
+    process.exit(1);
+  }
+};
+
+connectDB();
 
 // Add these time range constants at the top of the file
 const TIME_RANGES = {
@@ -76,25 +101,17 @@ const refreshAccessToken = async (refreshToken) => {
   }
 };
 
-const getCalendarClient = async () => {
+const getCalendarClient = async (refreshToken, accessToken) => {
   const oauth2Client = new google.auth.OAuth2(
     process.env.GOOGLE_CLIENT_ID,
     process.env.GOOGLE_CLIENT_SECRET,
     process.env.GOOGLE_REDIRECT_URI2
   );
 
-  try {
-    const accessToken = await refreshAccessToken(
-      process.env.GOOGLE_REFRESH_TOKEN
-    );
-    oauth2Client.setCredentials({
-      access_token: accessToken,
-      refresh_token: process.env.GOOGLE_REFRESH_TOKEN,
-    });
-  } catch (error) {
-    console.error("Error refreshing access token:", error);
-    throw new Error("Failed to refresh access token");
-  }
+  oauth2Client.setCredentials({
+    access_token: accessToken,
+    refresh_token: refreshToken,
+  });
 
   return google.calendar({ version: "v3", auth: oauth2Client });
 };
@@ -170,9 +187,11 @@ function findOverlappingMeetings(events) {
 }
 
 // Update getEvents function
-async function getEvents({ start_date, end_date, attendee, keyword }) {
+async function getEvents(
+  { start_date, end_date, attendee, keyword },
+  calendar
+) {
   try {
-    const calendar = await getCalendarClient();
     const timeZone = "America/New_York";
     let timeMin, timeMax;
 
@@ -512,7 +531,7 @@ let conversationHistory = [];
 const processedMessages = new Set();
 
 // Main interaction function
-async function processCalendarRequest(userInput) {
+async function processCalendarRequest(userInput, calendarClient) {
   try {
     const today = new Date();
     const days = [
@@ -573,13 +592,13 @@ When asked about meetings for a specific week, always include the week reference
     if (message.function_call) {
       const args = JSON.parse(message.function_call.arguments);
       if (message.function_call.name === "get_events") {
-        response = await getEvents(args);
+        response = await getEvents(args, calendarClient);
       } else if (message.function_call.name === "get_meeting_details") {
-        response = await getMeetingDetails(args);
+        response = await getMeetingDetails(args, calendarClient);
       } else if (message.function_call.name === "create_meeting") {
-        response = await createMeeting(args);
+        response = await createMeeting(args, calendarClient);
       } else if (message.function_call.name === "modify_meeting") {
-        response = await modifyMeeting(args);
+        response = await modifyMeeting(args, calendarClient);
       }
     } else {
       // If no function was called, use the assistant's response to ask for more details
@@ -608,6 +627,22 @@ const test = async () => {
     output: process.stdout,
   });
 
+  // Get test user's tokens from MongoDB
+  const testUser = await User.findOne({
+    slackUserId: process.env.TEST_USER_ID,
+  });
+  if (!testUser) {
+    console.error("No test user found in database");
+    rl.close();
+    return;
+  }
+
+  const newAccessToken = await refreshAccessToken(testUser.refreshToken);
+  const calendar = await getCalendarClient(
+    testUser.refreshToken,
+    newAccessToken
+  );
+
   while (true) {
     const input = await rl.question(
       "\nEnter your calendar request (or 'exit' to quit): "
@@ -619,7 +654,7 @@ const test = async () => {
       break;
     }
 
-    const reply = await processCalendarRequest(input);
+    const reply = await processCalendarRequest(input, calendar);
     console.log("\n🤖 Reply:", reply);
   }
 };
@@ -640,16 +675,14 @@ const testCalendarAccess = async () => {
 };
 
 // Add this new function to fetch meeting details
-async function getMeetingDetails({ date, summary, time }) {
+async function getMeetingDetails({ date, summary, time }, calendarClient) {
   try {
-    const calendar = await getCalendarClient();
-
     const startTime = new Date(date);
     startTime.setHours(0, 0, 0);
     const endTime = new Date(date);
     endTime.setHours(23, 59, 59);
 
-    const response = await calendar.events.list({
+    const response = await calendarClient.events.list({
       calendarId: "primary",
       timeMin: startTime.toISOString(),
       timeMax: endTime.toISOString(),
@@ -759,18 +792,20 @@ function generateRecurrenceRule(frequency = "WEEKLY", day) {
 }
 
 // Update the createMeeting function
-async function createMeeting({
-  summary,
-  date,
-  start_time,
-  end_time,
-  description,
-  attendees,
-  location,
-  recurrence,
-}) {
+async function createMeeting(
+  {
+    summary,
+    date,
+    start_time,
+    end_time,
+    description,
+    attendees,
+    location,
+    recurrence,
+  },
+  calendarClient
+) {
   try {
-    const calendar = await getCalendarClient();
     const timeZone = "America/New_York";
 
     // Parse the date in NY timezone
@@ -821,7 +856,7 @@ async function createMeeting({
         .map((email) => ({ email })),
     };
 
-    const response = await calendar.events.insert({
+    const response = await calendarClient.events.insert({
       calendarId: "primary",
       requestBody: event,
       sendUpdates: "all",
@@ -844,9 +879,9 @@ ${recurrence ? `- Repeats: Weekly on ${recurrence}s` : ""}
 }
 
 // Update the modifyMeeting function
-async function modifyMeeting({ date, summary, time, updates }) {
+async function modifyMeeting({ date, summary, time, updates }, calendarClient) {
   try {
-    const calendar = await getCalendarClient();
+    const timeZone = "America/New_York";
 
     // Use the same date parsing logic as getEvents
     function parseDate(dateStr) {
@@ -907,7 +942,7 @@ async function modifyMeeting({ date, summary, time, updates }) {
     const endTime = new Date(targetDate);
     endTime.setHours(23, 59, 59);
 
-    const response = await calendar.events.list({
+    const response = await calendarClient.events.list({
       calendarId: "primary",
       timeMin: startTime.toISOString(),
       timeMax: endTime.toISOString(),
@@ -984,7 +1019,7 @@ async function modifyMeeting({ date, summary, time, updates }) {
     }
 
     // Perform the update
-    const updateResponse = await calendar.events.update({
+    const updateResponse = await calendarClient.events.update({
       calendarId: "primary",
       eventId: event.id,
       requestBody: updatedEvent,
@@ -1024,49 +1059,105 @@ app.post("/slack/events", async (req, res) => {
     });
   }
 
-  // Get the event
   const { event } = req.body;
 
-  // Check if we've already processed this message
-  if (processedMessages.has(event.ts)) {
-    console.log("Duplicate message, ignoring:", event.ts);
-    return res.sendStatus(200);
-  }
-  processedMessages.add(event.ts);
-
   try {
-    console.log("Received message:", event.text);
-    console.log("From user:", event.user);
+    if (event && event.type === "message" && !event.bot_id) {
+      const slackUserId = event.user;
 
-    // Only respond to messages from the specified user
-    if (event.user !== process.env.SLACK_USER_ID) {
-      console.log(`Ignoring message from user ${event.user}`);
-      return res.sendStatus(200);
-    }
+      // Find user in MongoDB
+      const user = await User.findOne({ slackUserId });
 
-    // Process the calendar request
-    const response = await processCalendarRequest(event.text);
+      if (!user) {
+        // Generate OAuth URL with state parameter as slackUserId
+        const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${process.env.GOOGLE_CLIENT_ID}&redirect_uri=${process.env.GOOGLE_REDIRECT_URI2}&response_type=code&scope=https://www.googleapis.com/auth/calendar.events&access_type=offline&prompt=consent&state=${slackUserId}`;
 
-    // Send the response back to Slack as a DM
-    await axios.post(
-      "https://slack.com/api/chat.postMessage",
-      {
-        channel: event.user, // Send to user's DM instead of the channel
-        text: response,
-        // Remove thread_ts to avoid threading
-      },
-      {
-        headers: {
-          Authorization: `Bearer ${process.env.SLACK_BOT_TOKEN2}`,
-          "Content-Type": "application/json",
-        },
+        // Send OAuth link to user
+        await axios.post(
+          "https://slack.com/api/chat.postMessage",
+          {
+            channel: event.user,
+            text: `Please connect your Google Calendar first: <${authUrl}|Click here to connect>`,
+          },
+          {
+            headers: {
+              Authorization: `Bearer ${process.env.SLACK_BOT_TOKEN2}`,
+            },
+          }
+        );
+        return res.sendStatus(200);
       }
-    );
+
+      // Process message with user's tokens
+      const newAccessToken = await refreshAccessToken(user.refreshToken);
+
+      // Update the calendar client with user's tokens
+      const calendar = await getCalendarClient(
+        user.refreshToken,
+        newAccessToken
+      );
+
+      // Process the message
+      const response = await processCalendarRequest(event.text, calendar);
+
+      // Send response back to user
+      await axios.post(
+        "https://slack.com/api/chat.postMessage",
+        {
+          channel: event.user,
+          text: response,
+        },
+        {
+          headers: { Authorization: `Bearer ${process.env.SLACK_BOT_TOKEN2}` },
+        }
+      );
+    }
 
     res.sendStatus(200);
   } catch (error) {
-    console.error("Error handling Slack message:", error);
+    console.error("Error in Slack event handler:", error);
     res.sendStatus(500);
+  }
+});
+
+// Add OAuth callback handler
+app.get("/google/oauth/callback", async (req, res) => {
+  try {
+    const { code, state } = req.query;
+    if (!code || !state) {
+      return res.status(400).send("Missing required OAuth parameters");
+    }
+
+    // state parameter contains the slackUserId
+    const slackUserId = state;
+
+    const { data } = await axios.post("https://oauth2.googleapis.com/token", {
+      code,
+      client_id: process.env.GOOGLE_CLIENT_ID,
+      client_secret: process.env.GOOGLE_CLIENT_SECRET,
+      redirect_uri: process.env.GOOGLE_REDIRECT_URI2,
+      grant_type: "authorization_code",
+    });
+
+    // Create or update user in MongoDB
+    await User.findOneAndUpdate(
+      { slackUserId },
+      {
+        accessToken: data.access_token,
+        refreshToken: data.refresh_token,
+        lastInteraction: new Date(),
+      },
+      { upsert: true }
+    );
+
+    res.send(
+      "✅ Your Google Calendar is now connected. You can go back to Slack!"
+    );
+  } catch (error) {
+    console.error("Error in Google OAuth callback:", error);
+    res
+      .status(500)
+      .send("Failed to connect Google Calendar. Please try again.");
   }
 });
 
