@@ -1210,6 +1210,12 @@ app.post("/slack/events", async (req, res) => {
             },
           }
         );
+
+        // Create a new user record without timezone
+        await User.create({
+          slackUserId: event.user,
+        });
+
         return res.sendStatus(200);
       } else if (!user.timezone) {
         // User exists but no timezone set
@@ -1231,6 +1237,11 @@ app.post("/slack/events", async (req, res) => {
             message +=
               " If this isn't correct, please let me know and I'll update it.";
           }
+          message += "\n\nNow let's connect your Google Calendar.";
+
+          // Send Google auth link immediately after setting timezone
+          const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${process.env.GOOGLE_CLIENT_ID}&redirect_uri=${process.env.GOOGLE_REDIRECT_URI2}&response_type=code&scope=https://www.googleapis.com/auth/calendar.events&access_type=offline&prompt=consent&state=${event.user}`;
+          message += `\n<${authUrl}|Click here to connect>`;
 
           await axios.post(
             "https://slack.com/api/chat.postMessage",
