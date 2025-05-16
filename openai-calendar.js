@@ -1197,25 +1197,40 @@ app.post("/slack/events", async (req, res) => {
       const user = await User.findOne({ slackUserId });
 
       if (!user) {
+        // New user - first ask for timezone
+        await axios.post(
+          "https://slack.com/api/chat.postMessage",
+          {
+            channel: event.user,
+            text: "Welcome! Before we start, please tell me where you're located or what your default timezone is.",
+          },
+          {
+            headers: {
+              Authorization: `Bearer ${process.env.SLACK_BOT_TOKEN2}`,
+            },
+          }
+        );
+        return res.sendStatus(200);
+      } else if (!user.timezone) {
+        // User exists but no timezone set
         try {
           // Try to identify timezone from user's message
           const { timezone, confidence } = await identifyTimezone(event.text);
 
-          // Generate auth URL
-          const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${process.env.GOOGLE_CLIENT_ID}&redirect_uri=${process.env.GOOGLE_REDIRECT_URI2}&response_type=code&scope=https://www.googleapis.com/auth/calendar.events&access_type=offline&prompt=consent&state=${slackUserId}`;
-
-          // Create user with timezone
-          await User.create({
-            slackUserId,
-            timezone,
-          });
+          // Update user with timezone
+          await User.findOneAndUpdate(
+            { slackUserId: event.user },
+            {
+              timezone,
+              lastInteraction: new Date(),
+            }
+          );
 
           let message = `Thanks! I've set your timezone to ${timezone}.`;
           if (confidence && confidence < 0.8) {
             message +=
               " If this isn't correct, please let me know and I'll update it.";
           }
-          message += `\n\nNow please connect your Google Calendar: <${authUrl}|Click here to connect>`;
 
           await axios.post(
             "https://slack.com/api/chat.postMessage",
@@ -1246,7 +1261,27 @@ app.post("/slack/events", async (req, res) => {
           );
           return res.sendStatus(200);
         }
+      } else if (!user.accessToken) {
+        // User has timezone but needs Google auth
+        const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${process.env.GOOGLE_CLIENT_ID}&redirect_uri=${process.env.GOOGLE_REDIRECT_URI2}&response_type=code&scope=https://www.googleapis.com/auth/calendar.events&access_type=offline&prompt=consent&state=${event.user}`;
+
+        await axios.post(
+          "https://slack.com/api/chat.postMessage",
+          {
+            channel: event.user,
+            text: `Please connect your Google Calendar: <${authUrl}|Click here to connect>`,
+          },
+          {
+            headers: {
+              Authorization: `Bearer ${process.env.SLACK_BOT_TOKEN2}`,
+            },
+          }
+        );
+        return res.sendStatus(200);
       }
+
+      // If we get here, user exists and has both timezone and Google auth
+      // Continue with normal message processing...
 
       // Process message with user's tokens
       const newAccessToken = await refreshAccessToken(user.refreshToken);
@@ -1306,12 +1341,12 @@ app.get("/google/oauth/callback", async (req, res) => {
         accessToken: data.access_token,
         refreshToken: data.refresh_token,
         lastInteraction: new Date(),
-        // Don't overwrite timezone if it exists
-        $setOnInsert: {
-          timezone: "Europe/Amsterdam", // fallback default
-        },
       },
-      { upsert: true }
+      {
+        upsert: true,
+        // Don't overwrite existing fields if they exist
+        setDefaultsOnInsert: true,
+      }
     );
 
     res.send(
