@@ -37,6 +37,25 @@ const TIME_RANGES = {
   evening: { start: 18, end: 23 }, // 6:00 PM - 11:00 PM ET
 };
 
+// Replace the simple TIMEZONES object with a more comprehensive list
+const TIMEZONES = {
+  amsterdam: "Europe/Amsterdam",
+  "new york": "America/New_York",
+  london: "Europe/London",
+  paris: "Europe/Paris",
+  berlin: "Europe/Berlin",
+  rome: "Europe/Rome",
+  madrid: "Europe/Madrid",
+  tokyo: "Asia/Tokyo",
+  singapore: "Asia/Singapore",
+  sydney: "Australia/Sydney",
+  dubai: "Asia/Dubai",
+  mumbai: "Asia/Kolkata",
+  "los angeles": "America/Los_Angeles",
+  chicago: "America/Chicago",
+  // Add more common cities/timezones
+};
+
 // Helper functions for week calculations
 function getStartOfWeek(date) {
   const timeZone = "America/New_York";
@@ -397,11 +416,12 @@ async function getEvents(
 }
 
 // Add this new function
-async function findOpenSlots({ date, duration = 30 }, calendar) {
+async function findOpenSlots({ date, duration = 30 }, calendar, timezone) {
   try {
     // Set up the time range for the specified date
     const startOfDay = new Date(date);
-    startOfDay.setHours(8, 0, 0); // Start at 8 AM
+    // Use user's timezone for calculations
+    startOfDay.setHours(8, 0, 0);
 
     const endOfDay = new Date(date);
     endOfDay.setHours(18, 0, 0); // End at 6 PM
@@ -1179,15 +1199,50 @@ app.post("/slack/events", async (req, res) => {
       const user = await User.findOne({ slackUserId });
 
       if (!user) {
-        // Generate OAuth URL with state parameter as slackUserId
-        const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${process.env.GOOGLE_CLIENT_ID}&redirect_uri=${process.env.GOOGLE_REDIRECT_URI2}&response_type=code&scope=https://www.googleapis.com/auth/calendar.events&access_type=offline&prompt=consent&state=${slackUserId}`;
-
-        // Send OAuth link to user
+        // First ask for timezone before Google Calendar auth
         await axios.post(
           "https://slack.com/api/chat.postMessage",
           {
             channel: event.user,
-            text: `Please connect your Google Calendar first: <${authUrl}|Click here to connect>`,
+            text: "Welcome! Before we start, what's your location?",
+            blocks: [
+              {
+                type: "section",
+                text: {
+                  type: "mrkdwn",
+                  text: "Welcome! Please select your timezone:",
+                },
+              },
+              {
+                type: "actions",
+                elements: [
+                  {
+                    type: "static_select",
+                    placeholder: {
+                      type: "plain_text",
+                      text: "Select your timezone",
+                    },
+                    options: Object.entries(TIMEZONES).map(([city, tz]) => ({
+                      text: {
+                        type: "plain_text",
+                        text: city.charAt(0).toUpperCase() + city.slice(1),
+                      },
+                      value: city,
+                    })),
+                    action_id: "set_timezone",
+                  },
+                ],
+              },
+              {
+                type: "context",
+                elements: [
+                  {
+                    type: "mrkdwn",
+                    text: "Don't see your city? Contact support to add more timezones.",
+                  },
+                ],
+              },
+            ],
           },
           {
             headers: {
@@ -1256,6 +1311,10 @@ app.get("/google/oauth/callback", async (req, res) => {
         accessToken: data.access_token,
         refreshToken: data.refresh_token,
         lastInteraction: new Date(),
+        // Don't overwrite timezone if it exists
+        $setOnInsert: {
+          timezone: "Europe/Amsterdam", // fallback default
+        },
       },
       { upsert: true }
     );
@@ -1274,6 +1333,41 @@ app.get("/google/oauth/callback", async (req, res) => {
 // Simple health check
 app.get("/health", (req, res) => {
   res.send("OK");
+});
+
+// Update the action handler to handle the dropdown selection
+app.post("/slack/actions", async (req, res) => {
+  const payload = JSON.parse(req.body.payload);
+
+  if (payload.type === "block_actions") {
+    const action = payload.actions[0];
+    if (action.action_id === "set_timezone") {
+      const timezone = TIMEZONES[action.selected_option.value];
+      const slackUserId = payload.user.id;
+
+      // Create user with timezone
+      await User.create({
+        slackUserId,
+        timezone,
+      });
+
+      // Now send the Google Calendar auth link
+      const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${process.env.GOOGLE_CLIENT_ID}&redirect_uri=${process.env.GOOGLE_REDIRECT_URI2}&response_type=code&scope=https://www.googleapis.com/auth/calendar.events&access_type=offline&prompt=consent&state=${slackUserId}`;
+
+      await axios.post(
+        "https://slack.com/api/chat.postMessage",
+        {
+          channel: slackUserId,
+          text: `Thanks! Your timezone is set to ${action.selected_option.text.text}. Now please connect your Google Calendar: <${authUrl}|Click here to connect>`,
+        },
+        {
+          headers: { Authorization: `Bearer ${process.env.SLACK_BOT_TOKEN2}` },
+        }
+      );
+    }
+  }
+
+  res.sendStatus(200);
 });
 
 // Change the startup logic

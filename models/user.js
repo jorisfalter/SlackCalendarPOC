@@ -14,6 +14,10 @@ const userSchema = new mongoose.Schema({
     type: String,
     required: true,
   },
+  timezone: {
+    type: String,
+    default: "Europe/Amsterdam", // Default fallback
+  },
   lastInteraction: {
     type: Date,
     default: Date.now,
