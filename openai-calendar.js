@@ -973,166 +973,70 @@ async function createMeeting(
 
 // modifyMeeting function
 async function modifyMeeting(
-  { date, summary, time, updates },
+  {
+    eventId,
+    summary,
+    date,
+    start_time,
+    end_time,
+    description,
+    attendees,
+    location,
+  },
   calendarClient,
   user
 ) {
   try {
-    const timeZone = user.timezone; // Use user's timezone with fallback
-    // Use the same date parsing logic as getEvents
-    function parseDate(dateStr) {
-      if (!dateStr) return new Date();
+    const timeZone = user.timezone;
+    console.log("Timezone:", timeZone);
 
-      const lowerDate = (dateStr || "").toLowerCase();
-      console.log("Parsing date for modification:", lowerDate);
+    // Parse the date and start time
+    const [year, month, day] = date.split("-").map(Number);
+    let [hours, minutes] = start_time
+      ? start_time.split(":").map(Number)
+      : [0, 0];
 
-      // Handle relative day references
-      const today = new Date();
-      if (lowerDate.includes("today")) return today;
-      if (lowerDate.includes("tomorrow")) {
-        const tomorrow = new Date(today);
-        tomorrow.setDate(today.getDate() + 1);
-        return tomorrow;
-      }
+    // Create date strings in YYYY-MM-DDTHH:mm:ss format with timezone
+    const startDateTime = new Date(
+      Date.UTC(year, month - 1, day, hours, minutes)
+    );
+    const startStr = startDateTime.toISOString().replace("Z", "");
 
-      // Handle day names (this week)
-      const dayMatches = lowerDate.match(
-        /(?:this\s+)?(monday|tuesday|wednesday|thursday|friday|saturday|sunday)/i
-      );
-      if (dayMatches) {
-        return getRelativeDate(dayMatches[1]);
-      }
-
-      // Handle ISO dates
-      return new Date(dateStr);
+    // Handle end time similarly
+    let endDateTime;
+    if (end_time) {
+      [hours, minutes] = end_time.split(":").map(Number);
+      endDateTime = new Date(Date.UTC(year, month - 1, day, hours, minutes));
+    } else {
+      endDateTime = new Date(startDateTime.getTime() + 30 * 60000); // 30 min default
     }
+    const endStr = endDateTime.toISOString().replace("Z", "");
 
-    // Parse the target date
-    const targetDate = parseDate(date);
-    console.log("Target date for modification:", targetDate);
-
-    // If updates contain a day name, update the date
-    if (updates.date) {
-      const newDate = parseDate(updates.date);
-      console.log("New date from updates:", newDate);
-      // Update the event date while keeping the same time
-      const eventDateTime = new Date(event.start.dateTime || event.start.date);
-      eventDateTime.setFullYear(newDate.getFullYear());
-      eventDateTime.setMonth(newDate.getMonth());
-      eventDateTime.setDate(newDate.getDate());
-      updatedEvent.start = {
-        dateTime: eventDateTime.toISOString(),
-        timeZone: event.start.timeZone,
-      };
-      // Maintain the same duration
-      const newEnd = new Date(eventDateTime.getTime() + eventDuration);
-      updatedEvent.end = {
-        dateTime: newEnd.toISOString(),
-        timeZone: event.end.timeZone,
-      };
-    }
-
-    // First find the meeting
-    const startTime = new Date(targetDate);
-    startTime.setHours(0, 0, 0);
-    const endTime = new Date(targetDate);
-    endTime.setHours(23, 59, 59);
-
-    const response = await calendarClient.events.list({
-      calendarId: "primary",
-      timeMin: startTime.toISOString(),
-      timeMax: endTime.toISOString(),
-      singleEvents: true,
-      orderBy: "startTime",
-      timeZone: timeZone,
-    });
-
-    let events = response.data.items;
-
-    // Filter by summary if provided
-    if (summary) {
-      events = events.filter((event) =>
-        event.summary.toLowerCase().includes(summary.toLowerCase())
-      );
-    }
-
-    // Filter by approximate time if provided
-    if (time) {
-      const [targetHour, targetMinute] = time.split(":").map(Number);
-      events = events.filter((event) => {
-        const eventTime = new Date(event.start.dateTime || event.start.date);
-        const hourDiff = Math.abs(eventTime.getHours() - targetHour);
-        const minuteDiff = Math.abs(eventTime.getMinutes() - targetMinute);
-        return hourDiff === 0 && minuteDiff < 30; // More precise time matching
-      });
-    }
-
-    if (!events.length) {
-      return "No matching meeting found to modify.";
-    }
-
-    const event = events[0];
-    const eventDateTime = new Date(event.start.dateTime || event.start.date);
-    const originalStart = new Date(event.start.dateTime);
-    const originalEnd = new Date(event.end.dateTime);
-    const eventDuration = originalEnd.getTime() - originalStart.getTime();
-
-    // Prepare the update
-    const updatedEvent = {
-      ...event,
-      summary: updates.summary || event.summary,
-      description: updates.description || event.description,
-      location: updates.location || event.location,
+    const event = {
+      summary,
+      start: {
+        dateTime: startStr,
+        timeZone: timeZone,
+      },
+      end: {
+        dateTime: endStr,
+        timeZone: timeZone,
+      },
+      description,
+      attendees: attendees ? attendees.map((email) => ({ email })) : [],
+      location,
     };
 
-    // Update times if provided
-    if (updates.start_time) {
-      const [startHour, startMinute] = updates.start_time
-        .split(":")
-        .map(Number);
-      const newStart = new Date(eventDateTime);
-      newStart.setHours(startHour, startMinute, 0, 0); // Added milliseconds
-      updatedEvent.start = {
-        dateTime: newStart.toISOString(),
-        timeZone: event.start.timeZone,
-      };
-
-      // Maintain the same duration when changing start time
-      const newEnd = new Date(newStart.getTime() + eventDuration);
-      updatedEvent.end = {
-        dateTime: newEnd.toISOString(),
-        timeZone: event.end.timeZone,
-      };
-    }
-
-    if (updates.end_time) {
-      const [endHour, endMinute] = updates.end_time.split(":").map(Number);
-      const newEnd = new Date(eventDateTime);
-      newEnd.setHours(endHour, endMinute, 0);
-      updatedEvent.end = {
-        dateTime: newEnd.toISOString(),
-        timeZone: event.end.timeZone,
-      };
-    }
-
-    // Perform the update
-    const updateResponse = await calendarClient.events.update({
+    const response = await calendarClient.events.patch({
       calendarId: "primary",
-      eventId: event.id,
-      requestBody: updatedEvent,
-      sendUpdates: "all",
+      eventId: eventId,
+      requestBody: event,
+      sendUpdates: "none",
     });
 
-    return `
-Meeting rescheduled successfully:
-- ${updatedEvent.summary}
-- From: ${originalStart.toLocaleString()} - ${originalEnd.toLocaleString()}
-- To: ${new Date(updatedEvent.start.dateTime).toLocaleString()} - ${new Date(
-      updatedEvent.end.dateTime
-    ).toLocaleString()}
-${updatedEvent.description ? `- Description: ${updatedEvent.description}` : ""}
-${updatedEvent.location ? `- Location: ${updatedEvent.location}` : ""}
-    `.trim();
+    return `✅ Event updated for ${new Date(startStr).toLocaleString("en-US", {
+      timeZone,
+    })} - ${new Date(endStr).toLocaleString("en-US", { timeZone })}`;
   } catch (error) {
     console.error("Error modifying meeting:", error);
     throw error;
