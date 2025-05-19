@@ -39,7 +39,6 @@ const TIME_RANGES = {
 
 // Helper functions for week calculations
 function getStartOfWeek(date) {
-  const timeZone = "America/New_York";
   const start = new Date(date);
 
   // Get to Monday (1) from whatever day we're on
@@ -58,7 +57,6 @@ function getStartOfWeek(date) {
 }
 
 function getEndOfWeek(date) {
-  const timeZone = "America/New_York";
   const end = new Date(date);
 
   // First get to Sunday
@@ -193,7 +191,7 @@ async function getEvents(
   user
 ) {
   try {
-    const timeZone = user.timezone || "America/New_York"; // Use user's timezone with fallback
+    const timeZone = user.timezone; // Use user's timezone with fallback
     let timeMin, timeMax;
 
     console.log("Keyword received:", keyword);
@@ -334,7 +332,7 @@ async function getEvents(
         month: "short",
         day: "numeric",
         year: "numeric",
-        timeZone: "America/New_York",
+        timeZone: timeZone,
       });
       if (!acc[date]) acc[date] = [];
       acc[date].push(event);
@@ -384,7 +382,7 @@ async function getEvents(
               hour: "2-digit",
               minute: "2-digit",
               hour12: true,
-              timeZone: "America/New_York",
+              timeZone: timeZone,
             })}`;
           })
           .join("\n");
@@ -400,7 +398,7 @@ async function getEvents(
 // Update findOpenSlots function
 async function findOpenSlots({ date, duration = 30 }, calendar, user) {
   try {
-    const timeZone = user.timezone || "America/New_York"; // Use user's timezone with fallback
+    const timeZone = user.timezone; // Use user's timezone with fallback
     // Set up the time range for the specified date
     const startOfDay = new Date(date);
     // Use user's timezone for calculations
@@ -890,7 +888,7 @@ async function createMeeting(
   user
 ) {
   try {
-    const timeZone = user.timezone || "America/New_York"; // Use user's timezone with fallback
+    const timeZone = user.timezone; // Use user's timezone with fallback
 
     // Parse the date and time properly
     const [year, month, day] = date.split("-").map(Number);
@@ -963,7 +961,7 @@ async function modifyMeeting(
   user
 ) {
   try {
-    const timeZone = user.timezone || "America/New_York"; // Use user's timezone with fallback
+    const timeZone = user.timezone; // Use user's timezone with fallback
     // Use the same date parsing logic as getEvents
     function parseDate(dateStr) {
       if (!dateStr) return new Date();
@@ -1029,6 +1027,7 @@ async function modifyMeeting(
       timeMax: endTime.toISOString(),
       singleEvents: true,
       orderBy: "startTime",
+      timeZone: timeZone,
     });
 
     let events = response.data.items;
