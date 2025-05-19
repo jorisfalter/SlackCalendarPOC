@@ -904,22 +904,21 @@ async function createMeeting(
     const [year, month, day] = date.split("-").map(Number);
     const [startHour, startMinute] = start_time.split(":").map(Number);
 
-    // Create date in local timezone first
+    // Create date in user's timezone
     const startDateTime = new Date(
-      year,
-      month - 1,
-      day,
-      startHour,
-      startMinute
-    );
+      Date.UTC(year, month - 1, day, startHour, startMinute)
+    ).toLocaleString("en-US", { timeZone: timeZone });
+
+    // Convert string back to Date object
+    const startDateTimeObj = new Date(startDateTime);
 
     // Calculate end time (30 minutes later if not specified)
-    const endDateTime = new Date(startDateTime);
+    const endDateTime = new Date(startDateTimeObj);
     if (end_time) {
       const [endHour, endMinute] = end_time.split(":").map(Number);
       endDateTime.setHours(endHour, endMinute);
     } else {
-      endDateTime.setMinutes(startDateTime.getMinutes() + 30); // Default 30 min duration
+      endDateTime.setMinutes(startDateTimeObj.getMinutes() + 30); // Default 30 min duration
     }
 
     const event = {
@@ -927,7 +926,7 @@ async function createMeeting(
       description,
       location,
       start: {
-        dateTime: startDateTime.toISOString(),
+        dateTime: startDateTimeObj.toISOString(),
         timeZone: timeZone,
       },
       end: {
@@ -952,7 +951,7 @@ async function createMeeting(
     return `
 Meeting created successfully${recurrenceText}:
 - ${summary}
-- ${startDateTime.toLocaleString()} to ${endDateTime.toLocaleString()}
+- ${startDateTimeObj.toLocaleString()} to ${endDateTime.toLocaleString()}
 ${description ? `- Description: ${description}` : ""}
 ${location ? `- Location: ${location}` : ""}
 ${attendees ? `- With: ${attendees.join(", ")}` : ""}
