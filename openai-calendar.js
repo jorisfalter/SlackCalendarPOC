@@ -911,43 +911,44 @@ async function createMeeting(
   user
 ) {
   try {
-    const timeZone = user.timezone; // Use user's timezone with fallback
+    const timeZone = user.timezone;
     console.log("Timezone:", timeZone);
 
     // Parse the date and start time
-    const startDateTimeObj = new Date(date);
-    if (start_time) {
-      const [hours, minutes] = start_time.split(":").map(Number);
-      startDateTimeObj.setHours(hours, minutes, 0, 0);
-    }
+    const [year, month, day] = date.split("-").map(Number);
+    let [hours, minutes] = start_time
+      ? start_time.split(":").map(Number)
+      : [0, 0];
 
-    // Create end time by adding duration if end_time not provided
-    let endDateTimeObj = new Date(startDateTimeObj);
+    // Create date strings in YYYY-MM-DDTHH:mm:ss format with timezone
+    const startDateTime = new Date(
+      Date.UTC(year, month - 1, day, hours, minutes)
+    );
+    const startStr = startDateTime.toISOString().replace("Z", "");
+
+    // Handle end time similarly
+    let endDateTime;
     if (end_time) {
-      const [hours, minutes] = end_time.split(":").map(Number);
-      endDateTimeObj.setHours(hours, minutes, 0, 0);
+      [hours, minutes] = end_time.split(":").map(Number);
+      endDateTime = new Date(Date.UTC(year, month - 1, day, hours, minutes));
     } else {
-      // FLAG I DON'T WANT DEFAULT DURATION
-      // If duration is provided in minutes, use that
-      const durationMinutes = 30; // Default duration
-      endDateTimeObj.setTime(
-        startDateTimeObj.getTime() + durationMinutes * 60000
-      );
+      endDateTime = new Date(startDateTime.getTime() + 30 * 60000); // 30 min default
     }
+    const endStr = endDateTime.toISOString().replace("Z", "");
 
     const event = {
-      summary: summary,
+      summary,
       start: {
-        dateTime: startDateTimeObj.toISOString(),
+        dateTime: startStr,
         timeZone: timeZone,
       },
       end: {
-        dateTime: endDateTimeObj.toISOString(),
+        dateTime: endStr,
         timeZone: timeZone,
       },
-      description: description,
+      description,
       attendees: attendees ? attendees.map((email) => ({ email })) : [],
-      location: location,
+      location,
     };
 
     if (recurrence) {
@@ -960,7 +961,10 @@ async function createMeeting(
       sendUpdates: "none",
     });
 
-    return `✅ Focus time scheduled for ${startDateTimeObj.toLocaleString()} - ${endDateTimeObj.toLocaleString()}`;
+    return `✅ Focus time scheduled for ${new Date(startStr).toLocaleString(
+      "en-US",
+      { timeZone }
+    )} - ${new Date(endStr).toLocaleString("en-US", { timeZone })}`;
   } catch (error) {
     console.error("Error creating meeting:", error);
     throw error;
