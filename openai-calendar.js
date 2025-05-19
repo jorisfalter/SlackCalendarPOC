@@ -656,29 +656,40 @@ When asked about meetings for a specific week, always include the week reference
         },
         ...conversationHistory,
       ],
-      functions,
-      function_call: "auto",
+      tools: functions.map((func) => ({
+        type: "function",
+        function: func,
+      })),
+      tool_choice: "auto",
     });
 
     const message = completion.choices[0].message;
-    console.log("OpenAI function call:", message.function_call); // Debug log
+    console.log("OpenAI function call:", message.tool_calls); // Debug log
     let response;
 
-    if (message.function_call) {
-      const args = JSON.parse(message.function_call.arguments);
-      if (message.function_call.name === "get_events") {
-        response = await getEvents(args, calendarClient, user);
-      } else if (message.function_call.name === "get_meeting_details") {
-        response = await getMeetingDetails(args, calendarClient, user);
-      } else if (message.function_call.name === "create_meeting") {
-        response = await createMeeting(args, calendarClient, user);
-      } else if (message.function_call.name === "modify_meeting") {
-        response = await modifyMeeting(args, calendarClient, user);
-      } else if (message.function_call.name === "find_open_slots") {
-        response = await findOpenSlots(args, calendarClient, user);
+    if (message.tool_calls) {
+      const toolCall = message.tool_calls[0]; // Get the first tool call
+      const args = JSON.parse(toolCall.function.arguments);
+
+      switch (toolCall.function.name) {
+        case "get_events":
+          response = await getEvents(args, calendarClient, user);
+          break;
+        case "get_meeting_details":
+          response = await getMeetingDetails(args, calendarClient, user);
+          break;
+        case "create_meeting":
+          response = await createMeeting(args, calendarClient, user);
+          break;
+        case "modify_meeting":
+          response = await modifyMeeting(args, calendarClient, user);
+          break;
+        case "find_open_slots":
+          response = await findOpenSlots(args, calendarClient, user);
+          break;
       }
     } else {
-      // If no function was called, use the assistant's response to ask for more details
+      // If no function was called, use the assistant's response
       response = message.content;
     }
 
@@ -686,7 +697,6 @@ When asked about meetings for a specific week, always include the week reference
     conversationHistory.push({
       role: "assistant",
       content: response,
-      function_call: message.function_call,
     });
 
     return response;
