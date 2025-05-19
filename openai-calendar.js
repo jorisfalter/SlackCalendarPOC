@@ -940,35 +940,33 @@ async function createMeeting(
       ? start_time.split(":").map(Number)
       : [0, 0];
 
-    // Create a formatter to handle the timezone conversion
-    const formatter = new Intl.DateTimeFormat("en-US", {
-      timeZone,
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-      hour: "2-digit",
-      minute: "2-digit",
-      second: "2-digit",
-      hour12: false,
-    });
-
-    // Create the start date in user's timezone
+    // Create the start date in local time
     const startDateTime = new Date(year, month - 1, day, hours, minutes);
-    const startStr = formatter
-      .format(startDateTime)
-      .replace(/(\d+)\/(\d+)\/(\d+), (\d+):(\d+):(\d+)/, "$3-$1-$2T$4:$5:$6");
+
+    // Create a Date object in the user's timezone
+    const userDate = new Date(
+      startDateTime.toLocaleString("en-US", { timeZone })
+    );
+    const utcDate = new Date(
+      startDateTime.toLocaleString("en-US", { timeZone: "UTC" })
+    );
+    const tzOffset = (userDate - utcDate) / (60 * 1000); // Offset in minutes
+
+    // Adjust for timezone
+    startDateTime.setMinutes(startDateTime.getMinutes() - tzOffset);
+
+    const startStr = startDateTime.toISOString().slice(0, -1); // Remove trailing 'Z'
 
     // Handle end time similarly
     let endDateTime;
     if (end_time) {
       [hours, minutes] = end_time.split(":").map(Number);
       endDateTime = new Date(year, month - 1, day, hours, minutes);
+      endDateTime.setMinutes(endDateTime.getMinutes() - tzOffset);
     } else {
       endDateTime = new Date(startDateTime.getTime() + 25 * 60000); // 25 min default
     }
-    const endStr = formatter
-      .format(endDateTime)
-      .replace(/(\d+)\/(\d+)\/(\d+), (\d+):(\d+):(\d+)/, "$3-$1-$2T$4:$5:$6");
+    const endStr = endDateTime.toISOString().slice(0, -1); // Remove trailing 'Z'
 
     const event = {
       summary,
