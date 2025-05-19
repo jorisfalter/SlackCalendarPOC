@@ -868,7 +868,7 @@ function generateRecurrenceRule(frequency = "WEEKLY", day) {
   return `RRULE:FREQ=${frequency};BYDAY=${formattedDay}`;
 }
 
-// Update the createMeeting function
+// createMeeting 
 async function createMeeting({ summary, date, start_time, end_time, description, attendees, location, recurrence }, calendarClient, user) {
   try {
     const timeZone = user.timezone || "America/New_York"; // Use user's timezone with fallback
@@ -927,7 +927,7 @@ ${recurrence ? `- Repeats: Weekly on ${recurrence}s` : ""}
   }
 }
 
-// Update the modifyMeeting function
+// modifyMeeting function
 async function modifyMeeting({ date, summary, time, updates }, calendarClient, user) {
   try {
     const timeZone = user.timezone || "America/New_York"; // Use user's timezone with fallback
