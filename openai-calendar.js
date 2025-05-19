@@ -981,10 +981,16 @@ async function createMeeting(
       sendUpdates: "none",
     });
 
-    return `✅ Focus time scheduled for ${new Date(startStr).toLocaleString(
-      "en-US",
-      { timeZone }
-    )} - ${new Date(endStr).toLocaleString("en-US", { timeZone })}`;
+    return `✅ ${summary || "Meeting"} scheduled for ${new Date(
+      startStr
+    ).toLocaleString("en-US", {
+      timeZone,
+      dateStyle: "short",
+      timeStyle: "short",
+    })} - ${new Date(endStr).toLocaleString("en-US", {
+      timeZone,
+      timeStyle: "short",
+    })}`;
   } catch (error) {
     console.error("Error creating meeting:", error);
     throw error;
