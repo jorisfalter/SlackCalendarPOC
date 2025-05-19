@@ -520,21 +520,34 @@ const functions = [
   {
     name: "create_meeting",
     description:
-      "Create a new calendar event. Ask for duration if not specified.",
+      "Create a new calendar event. Use this for any request to schedule or create a meeting.",
     parameters: {
       type: "object",
       properties: {
-        summary: { type: "string", description: "Meeting title" },
-        date: { type: "string", description: "YYYY-MM-DD format" },
-        start_time: { type: "string", description: "HH:MM in 24h format" },
-        end_time: { type: "string", description: "HH:MM in 24h format" },
+        summary: {
+          type: "string",
+          description: "Meeting title (use 'Meeting' if not specified)",
+        },
+        date: {
+          type: "string",
+          description: "YYYY-MM-DD format. For 'tomorrow', calculate the date.",
+        },
+        start_time: {
+          type: "string",
+          description: "HH:MM in 24h format (e.g., '10:00' for 10 AM)",
+        },
+        end_time: {
+          type: "string",
+          description:
+            "HH:MM in 24h format. If not specified, add 30 minutes to start_time",
+        },
         attendees: {
           type: "array",
           items: { type: "string" },
-          description: "Email addresses (ask if only name provided)",
+          description: "Email addresses of attendees",
         },
       },
-      required: ["summary", "date", "start_time", "end_time"],
+      required: ["date", "start_time"],
     },
   },
   {
@@ -643,9 +656,16 @@ async function processCalendarRequest(userInput, calendarClient, user) {
     conversationHistory.push({ role: "user", content: userInput });
 
     const prompt = `You are a calendar assistant. Today is ${currentDay}, ${today.toLocaleDateString()}.
-When asked about meetings for a specific week, always include the week reference in the keyword parameter:
-- "what meetings do I have next week" -> keyword: "next week"
-- "what meetings do I have this week" -> keyword: "this week"`;
+For scheduling requests like "schedule a meeting tomorrow at 10am" or "create a meeting at 2pm", 
+always use the create_meeting function, not find_open_slots.
+
+Only use find_open_slots when explicitly asked about availability or free slots.
+
+When scheduling:
+1. For "tomorrow", calculate the actual date in YYYY-MM-DD format
+2. Convert time to 24-hour format (e.g., "10am" -> "10:00")
+3. If no meeting title given, use "Meeting" as default
+4. If no end time given, default to 30 minutes after start time`;
 
     const completion = await openai.chat.completions.create({
       model: "gpt-4",
