@@ -940,21 +940,35 @@ async function createMeeting(
       ? start_time.split(":").map(Number)
       : [0, 0];
 
-    // Create date strings in YYYY-MM-DDTHH:mm:ss format with timezone
-    const startDateTime = new Date(
-      Date.UTC(year, month - 1, day, hours, minutes)
-    );
-    const startStr = startDateTime.toISOString().replace("Z", "");
+    // Create a formatter to handle the timezone conversion
+    const formatter = new Intl.DateTimeFormat("en-US", {
+      timeZone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hour12: false,
+    });
+
+    // Create the start date in user's timezone
+    const startDateTime = new Date(year, month - 1, day, hours, minutes);
+    const startStr = formatter
+      .format(startDateTime)
+      .replace(/(\d+)\/(\d+)\/(\d+), (\d+):(\d+):(\d+)/, "$3-$1-$2T$4:$5:$6");
 
     // Handle end time similarly
     let endDateTime;
     if (end_time) {
       [hours, minutes] = end_time.split(":").map(Number);
-      endDateTime = new Date(Date.UTC(year, month - 1, day, hours, minutes));
+      endDateTime = new Date(year, month - 1, day, hours, minutes);
     } else {
-      endDateTime = new Date(startDateTime.getTime() + 30 * 60000); // 30 min default
+      endDateTime = new Date(startDateTime.getTime() + 25 * 60000); // 25 min default
     }
-    const endStr = endDateTime.toISOString().replace("Z", "");
+    const endStr = formatter
+      .format(endDateTime)
+      .replace(/(\d+)\/(\d+)\/(\d+), (\d+):(\d+):(\d+)/, "$3-$1-$2T$4:$5:$6");
 
     const event = {
       summary,
@@ -984,13 +998,16 @@ async function createMeeting(
     // Get the event link from the response
     const eventLink = response.data.htmlLink;
 
-    return `✅ Event scheduled for ${new Date(startStr).toLocaleString(
-      "en-US",
-      {
-        timeZone,
-      }
-    )} - ${new Date(endStr).toLocaleString("en-US", {
+    // Format the confirmation message using the event data directly
+    return `✅ ${summary || "Meeting"} scheduled for ${new Date(
+      response.data.start.dateTime
+    ).toLocaleString("en-US", {
       timeZone,
+      dateStyle: "full",
+      timeStyle: "short",
+    })} - ${new Date(response.data.end.dateTime).toLocaleString("en-US", {
+      timeZone,
+      timeStyle: "short",
     })}\n\n📅 Calendar link: ${eventLink}`;
   } catch (error) {
     console.error("Error creating meeting:", error);
