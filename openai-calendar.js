@@ -37,23 +37,7 @@ const TIME_RANGES = {
   evening: { start: 18, end: 23 }, // 6:00 PM - 11:00 PM ET
 };
 
-const TIMEZONES = {
-  amsterdam: "Europe/Amsterdam",
-  "new york": "America/New_York",
-  london: "Europe/London",
-  paris: "Europe/Paris",
-  berlin: "Europe/Berlin",
-  rome: "Europe/Rome",
-  madrid: "Europe/Madrid",
-  tokyo: "Asia/Tokyo",
-  singapore: "Asia/Singapore",
-  sydney: "Australia/Sydney",
-  dubai: "Asia/Dubai",
-  mumbai: "Asia/Kolkata",
-  "los angeles": "America/Los_Angeles",
-  chicago: "America/Chicago",
-  // Add more common cities/timezones
-};
+
 
 // Helper functions for week calculations
 function getStartOfWeek(date) {
@@ -204,13 +188,10 @@ function findOverlappingMeetings(events) {
   return overlaps;
 }
 
-// Update getEvents function
-async function getEvents(
-  { start_date, end_date, attendee, keyword },
-  calendar
-) {
+// Update getEvents function to accept user parameter
+async function getEvents({ start_date, end_date, attendee, keyword }, calendar, user) {
   try {
-    const timeZone = "America/New_York";
+    const timeZone = user.timezone || "America/New_York"; // Use user's timezone with fallback
     let timeMin, timeMax;
 
     console.log("Keyword received:", keyword);
@@ -414,9 +395,10 @@ async function getEvents(
   }
 }
 
-// find open slots
-async function findOpenSlots({ date, duration = 30 }, calendar, timezone) {
+// Update findOpenSlots function
+async function findOpenSlots({ date, duration = 30 }, calendar, user) {
   try {
+    const timeZone = user.timezone || "America/New_York"; // Use user's timezone with fallback
     // Set up the time range for the specified date
     const startOfDay = new Date(date);
     // Use user's timezone for calculations
@@ -643,7 +625,7 @@ const processedMessages = new Set();
 const processedUsers = new Set();
 
 // Main interaction function
-async function processCalendarRequest(userInput, calendarClient) {
+async function processCalendarRequest(userInput, calendarClient, user) {
   try {
     const today = new Date();
     const days = [
@@ -659,25 +641,6 @@ async function processCalendarRequest(userInput, calendarClient) {
 
     // Add user's new message to history
     conversationHistory.push({ role: "user", content: userInput });
-
-    // const EXAMPLES = [
-    //   {
-    //     user: "do i have any meetings about marketing this week",
-    //     assistant: {
-    //       function: "get_events",
-    //       args: { keyword: "marketing this week" },
-    //     },
-    //   },
-    //   {
-    //     user: "what marketing meetings do i have",
-    //     assistant: { function: "get_events", args: { keyword: "marketing" } },
-    //   },
-    //   {
-    //     user: "schedule a meeting with Frank tomorrow",
-    //     assistant:
-    //       "Could you provide Frank's email address to send the invitation?",
-    //   },
-    // ];
 
     const prompt = `You are a calendar assistant. Today is ${currentDay}, ${today.toLocaleDateString()}.
 When asked about meetings for a specific week, always include the week reference in the keyword parameter:
@@ -704,15 +667,15 @@ When asked about meetings for a specific week, always include the week reference
     if (message.function_call) {
       const args = JSON.parse(message.function_call.arguments);
       if (message.function_call.name === "get_events") {
-        response = await getEvents(args, calendarClient);
+        response = await getEvents(args, calendarClient, user);
       } else if (message.function_call.name === "get_meeting_details") {
-        response = await getMeetingDetails(args, calendarClient);
+        response = await getMeetingDetails(args, calendarClient, user);
       } else if (message.function_call.name === "create_meeting") {
-        response = await createMeeting(args, calendarClient);
+        response = await createMeeting(args, calendarClient, user);
       } else if (message.function_call.name === "modify_meeting") {
-        response = await modifyMeeting(args, calendarClient);
+        response = await modifyMeeting(args, calendarClient, user);
       } else if (message.function_call.name === "find_open_slots") {
-        response = await findOpenSlots(args, calendarClient);
+        response = await findOpenSlots(args, calendarClient, user);
       }
     } else {
       // If no function was called, use the assistant's response to ask for more details
@@ -768,7 +731,7 @@ const test = async () => {
       break;
     }
 
-    const reply = await processCalendarRequest(input, calendar);
+    const reply = await processCalendarRequest(input, calendar, testUser);
     console.log("\n🤖 Reply:", reply);
   }
 };
@@ -789,7 +752,7 @@ const testCalendarAccess = async () => {
 };
 
 // Add this new function to fetch meeting details
-async function getMeetingDetails({ date, summary, time }, calendarClient) {
+async function getMeetingDetails({ date, summary, time }, calendarClient, user) {
   try {
     const startTime = new Date(date);
     startTime.setHours(0, 0, 0);
@@ -906,48 +869,25 @@ function generateRecurrenceRule(frequency = "WEEKLY", day) {
 }
 
 // Update the createMeeting function
-async function createMeeting(
-  {
-    summary,
-    date,
-    start_time,
-    end_time,
-    description,
-    attendees,
-    location,
-    recurrence,
-  },
-  calendarClient
-) {
+async function createMeeting({ summary, date, start_time, end_time, description, attendees, location, recurrence }, calendarClient, user) {
   try {
-    // FLAG!
-    const timeZone = "America/New_York";
+    const timeZone = user.timezone || "America/New_York"; // Use user's timezone with fallback
 
-    // Parse the date in NY timezone
+    // Parse the date and time properly
     const [year, month, day] = date.split("-").map(Number);
     const [startHour, startMinute] = start_time.split(":").map(Number);
 
-    // Create date in NY timezone
-    const startDateTime = new Date(
-      Date.UTC(
-        year,
-        month - 1,
-        day,
-        startHour + 4, // Convert to UTC (NY is UTC-4)
-        startMinute
-      )
-    );
+    // Create date in local timezone first
+    const startDateTime = new Date(year, month - 1, day, startHour, startMinute);
 
-    // Handle end time similarly
-    const endDateTime = new Date(
-      Date.UTC(
-        year,
-        month - 1,
-        day,
-        end_time ? parseInt(end_time.split(":")[0]) + 4 : startHour + 3,
-        end_time ? parseInt(end_time.split(":")[1]) : startMinute
-      )
-    );
+    // Calculate end time (30 minutes later if not specified)
+    const endDateTime = new Date(startDateTime);
+    if (end_time) {
+      const [endHour, endMinute] = end_time.split(":").map(Number);
+      endDateTime.setHours(endHour, endMinute);
+    } else {
+      endDateTime.setMinutes(startDateTime.getMinutes() + 30); // Default 30 min duration
+    }
 
     const event = {
       summary,
@@ -961,14 +901,8 @@ async function createMeeting(
         dateTime: endDateTime.toISOString(),
         timeZone: timeZone,
       },
-      // Add recurrence if specified
-      recurrence: recurrence
-        ? [generateRecurrenceRule("WEEKLY", recurrence)]
-        : undefined,
-      // Only include attendees if they're actual email addresses
-      attendees: attendees
-        ?.filter((a) => a.includes("@"))
-        .map((email) => ({ email })),
+      recurrence: recurrence ? [generateRecurrenceRule("WEEKLY", recurrence)] : undefined,
+      attendees: attendees?.filter(a => a.includes("@")).map(email => ({ email })),
     };
 
     const response = await calendarClient.events.insert({
@@ -994,8 +928,9 @@ ${recurrence ? `- Repeats: Weekly on ${recurrence}s` : ""}
 }
 
 // Update the modifyMeeting function
-async function modifyMeeting({ date, summary, time, updates }, calendarClient) {
+async function modifyMeeting({ date, summary, time, updates }, calendarClient, user) {
   try {
+    const timeZone = user.timezone || "America/New_York"; // Use user's timezone with fallback
     // Use the same date parsing logic as getEvents
     function parseDate(dateStr) {
       if (!dateStr) return new Date();
@@ -1302,8 +1237,8 @@ app.post("/slack/events", async (req, res) => {
         newAccessToken
       );
 
-      // Process the message
-      const response = await processCalendarRequest(event.text, calendar);
+      // Pass the user object to processCalendarRequest
+      const response = await processCalendarRequest(event.text, calendar, user);
 
       // Send response back to user
       await axios.post(
@@ -1385,37 +1320,6 @@ app.get("/health", (req, res) => {
   res.send("OK");
 });
 
-// Update the action handler to handle the dropdown selection
-app.post("/slack/actions", async (req, res) => {
-  const payload = JSON.parse(req.body.payload);
-
-  if (payload.type === "block_actions") {
-    const action = payload.actions[0];
-    if (action.action_id === "set_timezone") {
-      const timezone = TIMEZONES[action.selected_option.value];
-      const slackUserId = payload.user.id;
-
-      // Create user with timezone
-      await User.create({
-        slackUserId,
-        timezone,
-      });
-
-      // Now send the Google Calendar auth link
-      const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${process.env.GOOGLE_CLIENT_ID}&redirect_uri=${process.env.GOOGLE_REDIRECT_URI2}&response_type=code&scope=https://www.googleapis.com/auth/calendar.events&access_type=offline&prompt=consent&state=${slackUserId}`;
-
-      await axios.post(
-        "https://slack.com/api/chat.postMessage",
-        {
-          channel: slackUserId,
-          text: `Thanks! Your timezone is set to ${action.selected_option.text.text}. Now please connect your Google Calendar: <${authUrl}|Click here to connect>`,
-        },
-        {
-          headers: { Authorization: `Bearer ${process.env.SLACK_BOT_TOKEN2}` },
-        }
-      );
-    }
-  }
 
   res.sendStatus(200);
 });
@@ -1483,5 +1387,6 @@ async function identifyTimezone(userInput) {
   });
 
   const args = JSON.parse(response.choices[0].message.function_call.arguments);
+  console.log(args);
   return args;
 }
