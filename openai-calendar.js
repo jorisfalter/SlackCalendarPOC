@@ -999,70 +999,87 @@ async function createMeeting(
 
 // modifyMeeting function
 async function modifyMeeting(
-  {
-    eventId,
-    summary,
-    date,
-    start_time,
-    end_time,
-    description,
-    attendees,
-    location,
-  },
+  { date, summary, time, updates },
   calendarClient,
   user
 ) {
   try {
     const timeZone = user.timezone;
-    console.log("Timezone:", timeZone);
 
-    // Parse the date and start time
-    const [year, month, day] = date.split("-").map(Number);
-    let [hours, minutes] = start_time
-      ? start_time.split(":").map(Number)
-      : [0, 0];
+    // First find the existing event
+    const startTime = new Date(date);
+    startTime.setHours(0, 0, 0);
+    const endTime = new Date(date);
+    endTime.setHours(23, 59, 59);
 
-    // Create date strings in YYYY-MM-DDTHH:mm:ss format with timezone
-    const startDateTime = new Date(
-      Date.UTC(year, month - 1, day, hours, minutes)
-    );
-    const startStr = startDateTime.toISOString().replace("Z", "");
+    const response = await calendarClient.events.list({
+      calendarId: "primary",
+      timeMin: startTime.toISOString(),
+      timeMax: endTime.toISOString(),
+      singleEvents: true,
+      q: summary, // Search by meeting title/summary
+    });
 
-    // Handle end time similarly
-    let endDateTime;
-    if (end_time) {
-      [hours, minutes] = end_time.split(":").map(Number);
-      endDateTime = new Date(Date.UTC(year, month - 1, day, hours, minutes));
-    } else {
-      endDateTime = new Date(startDateTime.getTime() + 30 * 60000); // 30 min default
+    const events = response.data.items;
+    if (!events || events.length === 0) {
+      return "Could not find the specified meeting.";
     }
-    const endStr = endDateTime.toISOString().replace("Z", "");
 
-    const event = {
-      summary,
-      start: {
-        dateTime: startStr,
-        timeZone: timeZone,
-      },
-      end: {
-        dateTime: endStr,
-        timeZone: timeZone,
-      },
-      description,
-      attendees: attendees ? attendees.map((email) => ({ email })) : [],
-      location,
+    // Find the most likely matching event
+    const event = events.find((e) =>
+      e.summary.toLowerCase().includes(summary.toLowerCase())
+    );
+
+    if (!event) {
+      return "Could not find the specified meeting.";
+    }
+
+    // Prepare the update
+    const updateBody = {
+      ...event,
+      ...updates,
     };
 
-    const response = await calendarClient.events.patch({
+    if (updates.start_time) {
+      const [hours, minutes] = updates.start_time.split(":").map(Number);
+      const startDateTime = new Date(date);
+      startDateTime.setHours(hours, minutes, 0);
+      updateBody.start = {
+        dateTime: startDateTime.toISOString(),
+        timeZone,
+      };
+
+      // If end_time not specified, add 30 minutes to start time
+      const endDateTime = new Date(startDateTime);
+      if (updates.end_time) {
+        const [endHours, endMinutes] = updates.end_time.split(":").map(Number);
+        endDateTime.setHours(endHours, endMinutes, 0);
+      } else {
+        endDateTime.setMinutes(endDateTime.getMinutes() + 30);
+      }
+      updateBody.end = {
+        dateTime: endDateTime.toISOString(),
+        timeZone,
+      };
+    }
+
+    const updatedEvent = await calendarClient.events.patch({
       calendarId: "primary",
-      eventId: eventId,
-      requestBody: event,
+      eventId: event.id,
+      requestBody: updateBody,
       sendUpdates: "none",
     });
 
-    return `✅ Event updated for ${new Date(startStr).toLocaleString("en-US", {
+    return `✅ Meeting updated to ${new Date(
+      updatedEvent.data.start.dateTime
+    ).toLocaleString("en-US", {
       timeZone,
-    })} - ${new Date(endStr).toLocaleString("en-US", { timeZone })}`;
+      dateStyle: "short",
+      timeStyle: "short",
+    })} - ${new Date(updatedEvent.data.end.dateTime).toLocaleString("en-US", {
+      timeZone,
+      timeStyle: "short",
+    })}`;
   } catch (error) {
     console.error("Error modifying meeting:", error);
     throw error;
