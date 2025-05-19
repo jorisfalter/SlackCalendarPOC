@@ -1178,7 +1178,7 @@ app.post("/slack/events", async (req, res) => {
 
   try {
     // Ignore bot messages and check for duplicates first
-    if (event.bot_id || event.user === "U08PP6BS9FB") {
+    if (event.bot_id) {
       return res.sendStatus(200);
     }
 
