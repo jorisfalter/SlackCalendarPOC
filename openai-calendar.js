@@ -37,7 +37,6 @@ const TIME_RANGES = {
   evening: { start: 18, end: 23 }, // 6:00 PM - 11:00 PM ET
 };
 
-// Replace the simple TIMEZONES object with a more comprehensive list
 const TIMEZONES = {
   amsterdam: "Europe/Amsterdam",
   "new york": "America/New_York",
@@ -415,7 +414,7 @@ async function getEvents(
   }
 }
 
-// Add this new function
+// find open slots
 async function findOpenSlots({ date, duration = 30 }, calendar, timezone) {
   try {
     // Set up the time range for the specified date
@@ -661,24 +660,24 @@ async function processCalendarRequest(userInput, calendarClient) {
     // Add user's new message to history
     conversationHistory.push({ role: "user", content: userInput });
 
-    const EXAMPLES = [
-      {
-        user: "do i have any meetings about marketing this week",
-        assistant: {
-          function: "get_events",
-          args: { keyword: "marketing this week" },
-        },
-      },
-      {
-        user: "what marketing meetings do i have",
-        assistant: { function: "get_events", args: { keyword: "marketing" } },
-      },
-      {
-        user: "schedule a meeting with Frank tomorrow",
-        assistant:
-          "Could you provide Frank's email address to send the invitation?",
-      },
-    ];
+    // const EXAMPLES = [
+    //   {
+    //     user: "do i have any meetings about marketing this week",
+    //     assistant: {
+    //       function: "get_events",
+    //       args: { keyword: "marketing this week" },
+    //     },
+    //   },
+    //   {
+    //     user: "what marketing meetings do i have",
+    //     assistant: { function: "get_events", args: { keyword: "marketing" } },
+    //   },
+    //   {
+    //     user: "schedule a meeting with Frank tomorrow",
+    //     assistant:
+    //       "Could you provide Frank's email address to send the invitation?",
+    //   },
+    // ];
 
     const prompt = `You are a calendar assistant. Today is ${currentDay}, ${today.toLocaleDateString()}.
 When asked about meetings for a specific week, always include the week reference in the keyword parameter:
@@ -921,6 +920,7 @@ async function createMeeting(
   calendarClient
 ) {
   try {
+    // FLAG!
     const timeZone = "America/New_York";
 
     // Parse the date in NY timezone
@@ -996,8 +996,6 @@ ${recurrence ? `- Repeats: Weekly on ${recurrence}s` : ""}
 // Update the modifyMeeting function
 async function modifyMeeting({ date, summary, time, updates }, calendarClient) {
   try {
-    const timeZone = "America/New_York";
-
     // Use the same date parsing logic as getEvents
     function parseDate(dateStr) {
       if (!dateStr) return new Date();
@@ -1250,19 +1248,45 @@ app.post("/slack/events", async (req, res) => {
         );
         return res.sendStatus(200);
       } else if (!user.timezone) {
-        // After Google auth, ask for timezone
-        await axios.post(
-          "https://slack.com/api/chat.postMessage",
-          {
-            channel: event.user,
-            text: "Great! Now please tell me where you're located or what your default timezone is.",
-          },
-          {
-            headers: {
-              Authorization: `Bearer ${process.env.SLACK_BOT_TOKEN2}`,
+        // Process timezone response
+        try {
+          const { timezone, confidence } = await identifyTimezone(event.text);
+
+          // Update user with timezone
+          await User.findOneAndUpdate(
+            { slackUserId },
+            { timezone },
+            { new: true }
+          );
+
+          // Confirm timezone setting to user
+          await axios.post(
+            "https://slack.com/api/chat.postMessage",
+            {
+              channel: event.user,
+              text: `✅ Thanks! I've set your timezone to ${timezone}. You can now start using the calendar features!`,
             },
-          }
-        );
+            {
+              headers: {
+                Authorization: `Bearer ${process.env.SLACK_BOT_TOKEN2}`,
+              },
+            }
+          );
+        } catch (error) {
+          console.error("Error setting timezone:", error);
+          await axios.post(
+            "https://slack.com/api/chat.postMessage",
+            {
+              channel: event.user,
+              text: "Sorry, I couldn't understand that timezone. Please try again with a city name or timezone (e.g., 'New York' or 'Europe/London').",
+            },
+            {
+              headers: {
+                Authorization: `Bearer ${process.env.SLACK_BOT_TOKEN2}`,
+              },
+            }
+          );
+        }
         return res.sendStatus(200);
       }
 
