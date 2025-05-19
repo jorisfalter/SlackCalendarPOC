@@ -671,22 +671,35 @@ When asked about meetings for a specific week, always include the week reference
       const toolCall = message.tool_calls[0]; // Get the first tool call
       const args = JSON.parse(toolCall.function.arguments);
 
-      switch (toolCall.function.name) {
-        case "get_events":
-          response = await getEvents(args, calendarClient, user);
-          break;
-        case "get_meeting_details":
-          response = await getMeetingDetails(args, calendarClient, user);
-          break;
-        case "create_meeting":
-          response = await createMeeting(args, calendarClient, user);
-          break;
-        case "modify_meeting":
-          response = await modifyMeeting(args, calendarClient, user);
-          break;
-        case "find_open_slots":
-          response = await findOpenSlots(args, calendarClient, user);
-          break;
+      try {
+        switch (toolCall.function.name) {
+          case "get_events":
+            response = await getEvents(args, calendarClient, user);
+            break;
+          case "get_meeting_details":
+            response = await getMeetingDetails(args, calendarClient, user);
+            break;
+          case "create_meeting":
+            response = await createMeeting(args, calendarClient, user);
+            break;
+          case "modify_meeting":
+            response = await modifyMeeting(args, calendarClient, user);
+            break;
+          case "find_open_slots":
+            response = await findOpenSlots(args, calendarClient, user);
+            break;
+        }
+      } catch (error) {
+        if (error.message === "DURATION_NEEDED") {
+          // Add this interaction to history
+          conversationHistory.push({
+            role: "assistant",
+            content:
+              "How long should the meeting be? (e.g., 30 minutes, 1 hour)",
+          });
+          return "How long should the meeting be? (e.g., 30 minutes, 1 hour)";
+        }
+        throw error;
       }
     } else {
       // If no function was called, use the assistant's response
@@ -899,64 +912,55 @@ async function createMeeting(
 ) {
   try {
     const timeZone = user.timezone; // Use user's timezone with fallback
+    console.log("Timezone:", timeZone);
 
-    // Parse the date and time properly
-    const [year, month, day] = date.split("-").map(Number);
-    const [startHour, startMinute] = start_time.split(":").map(Number);
+    // Parse the date and start time
+    const startDateTimeObj = new Date(date);
+    if (start_time) {
+      const [hours, minutes] = start_time.split(":").map(Number);
+      startDateTimeObj.setHours(hours, minutes, 0, 0);
+    }
 
-    // Create date in user's timezone
-    const startDateTime = new Date(
-      Date.UTC(year, month - 1, day, startHour, startMinute)
-    ).toLocaleString("en-US", { timeZone: timeZone });
-
-    // Convert string back to Date object
-    const startDateTimeObj = new Date(startDateTime);
-
-    // Calculate end time (30 minutes later if not specified)
-    const endDateTime = new Date(startDateTimeObj);
+    // Create end time by adding duration if end_time not provided
+    let endDateTimeObj = new Date(startDateTimeObj);
     if (end_time) {
-      const [endHour, endMinute] = end_time.split(":").map(Number);
-      endDateTime.setHours(endHour, endMinute);
+      const [hours, minutes] = end_time.split(":").map(Number);
+      endDateTimeObj.setHours(hours, minutes, 0, 0);
     } else {
-      endDateTime.setMinutes(startDateTimeObj.getMinutes() + 30); // Default 30 min duration
+      // FLAG I DON'T WANT DEFAULT DURATION
+      // If duration is provided in minutes, use that
+      const durationMinutes = 30; // Default duration
+      endDateTimeObj.setTime(
+        startDateTimeObj.getTime() + durationMinutes * 60000
+      );
     }
 
     const event = {
-      summary,
-      description,
-      location,
+      summary: summary,
       start: {
         dateTime: startDateTimeObj.toISOString(),
         timeZone: timeZone,
       },
       end: {
-        dateTime: endDateTime.toISOString(),
+        dateTime: endDateTimeObj.toISOString(),
         timeZone: timeZone,
       },
-      recurrence: recurrence
-        ? [generateRecurrenceRule("WEEKLY", recurrence)]
-        : undefined,
-      attendees: attendees
-        ?.filter((a) => a.includes("@"))
-        .map((email) => ({ email })),
+      description: description,
+      attendees: attendees ? attendees.map((email) => ({ email })) : [],
+      location: location,
     };
+
+    if (recurrence) {
+      event.recurrence = [recurrence];
+    }
 
     const response = await calendarClient.events.insert({
       calendarId: "primary",
       requestBody: event,
-      sendUpdates: "all",
+      sendUpdates: "none",
     });
 
-    const recurrenceText = recurrence ? " (Recurring)" : "";
-    return `
-Meeting created successfully${recurrenceText}:
-- ${summary}
-- ${startDateTimeObj.toLocaleString()} to ${endDateTime.toLocaleString()}
-${description ? `- Description: ${description}` : ""}
-${location ? `- Location: ${location}` : ""}
-${attendees ? `- With: ${attendees.join(", ")}` : ""}
-${recurrence ? `- Repeats: Weekly on ${recurrence}s` : ""}
-    `.trim();
+    return `✅ Focus time scheduled for ${startDateTimeObj.toLocaleString()} - ${endDateTimeObj.toLocaleString()}`;
   } catch (error) {
     console.error("Error creating meeting:", error);
     throw error;
