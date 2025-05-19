@@ -998,7 +998,6 @@ async function createMeeting(
     // Get the event link from the response
     const eventLink = response.data.htmlLink;
 
-    // Format the confirmation message using the event data directly
     return `✅ ${summary || "Meeting"} scheduled for ${new Date(
       response.data.start.dateTime
     ).toLocaleString("en-US", {
@@ -1008,7 +1007,7 @@ async function createMeeting(
     })} - ${new Date(response.data.end.dateTime).toLocaleString("en-US", {
       timeZone,
       timeStyle: "short",
-    })}\n\n📅 Calendar link: ${eventLink}`;
+    })}\n\n📅 Calendar link: <${eventLink}|Click to open>`;
   } catch (error) {
     console.error("Error creating meeting:", error);
     throw error;
@@ -1052,6 +1051,18 @@ async function modifyMeeting(
       return "Could not find the specified meeting.";
     }
 
+    // Create a formatter to handle the timezone conversion
+    const formatter = new Intl.DateTimeFormat("en-US", {
+      timeZone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hour12: false,
+    });
+
     // Prepare the update
     const updateBody = {
       ...event,
@@ -1062,21 +1073,35 @@ async function modifyMeeting(
       const [hours, minutes] = updates.start_time.split(":").map(Number);
       const startDateTime = new Date(date);
       startDateTime.setHours(hours, minutes, 0);
+      const startStr = formatter
+        .format(startDateTime)
+        .replace(/(\d+)\/(\d+)\/(\d+), (\d+):(\d+):(\d+)/, "$3-$1-$2T$4:$5:$6");
+
       updateBody.start = {
-        dateTime: startDateTime.toISOString(),
+        dateTime: startStr,
         timeZone,
       };
 
-      // If end_time not specified, add 30 minutes to start time
+      // If end_time not specified, maintain original duration
       const endDateTime = new Date(startDateTime);
       if (updates.end_time) {
         const [endHours, endMinutes] = updates.end_time.split(":").map(Number);
         endDateTime.setHours(endHours, endMinutes, 0);
       } else {
-        endDateTime.setMinutes(endDateTime.getMinutes() + 30);
+        // Calculate original duration in minutes
+        const originalStart = new Date(event.start.dateTime);
+        const originalEnd = new Date(event.end.dateTime);
+        const originalDuration = (originalEnd - originalStart) / (1000 * 60);
+
+        // Add original duration to new start time
+        endDateTime.setMinutes(endDateTime.getMinutes() + originalDuration);
       }
+      const endStr = formatter
+        .format(endDateTime)
+        .replace(/(\d+)\/(\d+)\/(\d+), (\d+):(\d+):(\d+)/, "$3-$1-$2T$4:$5:$6");
+
       updateBody.end = {
-        dateTime: endDateTime.toISOString(),
+        dateTime: endStr,
         timeZone,
       };
     }
@@ -1088,11 +1113,12 @@ async function modifyMeeting(
       sendUpdates: "none",
     });
 
+    // Use the response data for confirmation message
     return `✅ Meeting updated to ${new Date(
       updatedEvent.data.start.dateTime
     ).toLocaleString("en-US", {
       timeZone,
-      dateStyle: "short",
+      dateStyle: "full",
       timeStyle: "short",
     })} - ${new Date(updatedEvent.data.end.dateTime).toLocaleString("en-US", {
       timeZone,
