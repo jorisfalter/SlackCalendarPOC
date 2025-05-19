@@ -395,7 +395,7 @@ async function getEvents(
   }
 }
 
-// Update findOpenSlots function
+// findOpenSlots function
 async function findOpenSlots({ date, duration = 30 }, calendar, user) {
   try {
     const timeZone = user.timezone; // Use user's timezone with fallback
@@ -481,7 +481,7 @@ const functions = [
         keyword: {
           type: "string",
           description:
-            "IMPORTANT: For time periods, pass the exact phrase: 'this week' or 'next week'. For topics, include the topic name. Examples: 'next week', 'this week', 'marketing', 'marketing next week'",
+            "IMPORTANT: For time periods, pass the exact phrase: 'this week' or 'next week'. For topics, include the topic name. Examples: 'engineering', 'marketing'",
         },
         start_date: {
           type: "string",
@@ -981,16 +981,17 @@ async function createMeeting(
       sendUpdates: "none",
     });
 
-    return `✅ ${summary || "Meeting"} scheduled for ${new Date(
-      startStr
-    ).toLocaleString("en-US", {
+    // Get the event link from the response
+    const eventLink = response.data.htmlLink;
+
+    return `✅ Event scheduled for ${new Date(startStr).toLocaleString(
+      "en-US",
+      {
+        timeZone,
+      }
+    )} - ${new Date(endStr).toLocaleString("en-US", {
       timeZone,
-      dateStyle: "short",
-      timeStyle: "short",
-    })} - ${new Date(endStr).toLocaleString("en-US", {
-      timeZone,
-      timeStyle: "short",
-    })}`;
+    })}\n\n📅 Calendar link: ${eventLink}`;
   } catch (error) {
     console.error("Error creating meeting:", error);
     throw error;
