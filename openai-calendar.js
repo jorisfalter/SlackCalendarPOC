@@ -37,8 +37,6 @@ const TIME_RANGES = {
   evening: { start: 18, end: 23 }, // 6:00 PM - 11:00 PM ET
 };
 
-
-
 // Helper functions for week calculations
 function getStartOfWeek(date) {
   const timeZone = "America/New_York";
@@ -189,7 +187,11 @@ function findOverlappingMeetings(events) {
 }
 
 // Update getEvents function to accept user parameter
-async function getEvents({ start_date, end_date, attendee, keyword }, calendar, user) {
+async function getEvents(
+  { start_date, end_date, attendee, keyword },
+  calendar,
+  user
+) {
   try {
     const timeZone = user.timezone || "America/New_York"; // Use user's timezone with fallback
     let timeMin, timeMax;
@@ -752,7 +754,11 @@ const testCalendarAccess = async () => {
 };
 
 // Add this new function to fetch meeting details
-async function getMeetingDetails({ date, summary, time }, calendarClient, user) {
+async function getMeetingDetails(
+  { date, summary, time },
+  calendarClient,
+  user
+) {
   try {
     const startTime = new Date(date);
     startTime.setHours(0, 0, 0);
@@ -868,8 +874,21 @@ function generateRecurrenceRule(frequency = "WEEKLY", day) {
   return `RRULE:FREQ=${frequency};BYDAY=${formattedDay}`;
 }
 
-// createMeeting 
-async function createMeeting({ summary, date, start_time, end_time, description, attendees, location, recurrence }, calendarClient, user) {
+// createMeeting
+async function createMeeting(
+  {
+    summary,
+    date,
+    start_time,
+    end_time,
+    description,
+    attendees,
+    location,
+    recurrence,
+  },
+  calendarClient,
+  user
+) {
   try {
     const timeZone = user.timezone || "America/New_York"; // Use user's timezone with fallback
 
@@ -878,7 +897,13 @@ async function createMeeting({ summary, date, start_time, end_time, description,
     const [startHour, startMinute] = start_time.split(":").map(Number);
 
     // Create date in local timezone first
-    const startDateTime = new Date(year, month - 1, day, startHour, startMinute);
+    const startDateTime = new Date(
+      year,
+      month - 1,
+      day,
+      startHour,
+      startMinute
+    );
 
     // Calculate end time (30 minutes later if not specified)
     const endDateTime = new Date(startDateTime);
@@ -901,8 +926,12 @@ async function createMeeting({ summary, date, start_time, end_time, description,
         dateTime: endDateTime.toISOString(),
         timeZone: timeZone,
       },
-      recurrence: recurrence ? [generateRecurrenceRule("WEEKLY", recurrence)] : undefined,
-      attendees: attendees?.filter(a => a.includes("@")).map(email => ({ email })),
+      recurrence: recurrence
+        ? [generateRecurrenceRule("WEEKLY", recurrence)]
+        : undefined,
+      attendees: attendees
+        ?.filter((a) => a.includes("@"))
+        .map((email) => ({ email })),
     };
 
     const response = await calendarClient.events.insert({
@@ -928,7 +957,11 @@ ${recurrence ? `- Repeats: Weekly on ${recurrence}s` : ""}
 }
 
 // modifyMeeting function
-async function modifyMeeting({ date, summary, time, updates }, calendarClient, user) {
+async function modifyMeeting(
+  { date, summary, time, updates },
+  calendarClient,
+  user
+) {
   try {
     const timeZone = user.timezone || "America/New_York"; // Use user's timezone with fallback
     // Use the same date parsing logic as getEvents
@@ -1318,10 +1351,6 @@ app.get("/google/oauth/callback", async (req, res) => {
 // Simple health check
 app.get("/health", (req, res) => {
   res.send("OK");
-});
-
-
-  res.sendStatus(200);
 });
 
 // Change the startup logic
